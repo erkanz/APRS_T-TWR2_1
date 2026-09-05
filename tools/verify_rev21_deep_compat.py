@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 main = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
 gui_h = (ROOT / "include/gui_lcd.h").read_text(encoding="utf-8")
+gui_cpp = (ROOT / "src/gui_lcd.cpp").read_text(encoding="utf-8")
 sensor = (ROOT / "src/sensor.cpp").read_text(encoding="utf-8")
 web = (ROOT / "src/webservice.cpp").read_text(encoding="utf-8")
 pio = (ROOT / "platformio.ini").read_text(encoding="utf-8")
@@ -22,11 +23,17 @@ expect("GUI header uses SH1106 include", "#include <Adafruit_SH110X.h>" in gui_h
 expect("GUI header exports SH1106 display type", "extern Adafruit_SH1106G display;" in gui_h)
 expect("GUI header no SSD1306 include", '#include "Adafruit_SSD1306.h"' not in gui_h)
 expect("GUI header no SSD1306 display declaration", "extern Adafruit_SSD1306 display;" not in gui_h)
+expect("GUI BLACK alias maps to SH110X", "#define BLACK SH110X_BLACK" in gui_h)
+expect("GUI WHITE alias maps to SH110X", "#define WHITE SH110X_WHITE" in gui_h)
 expect("SSD1306 active include removed from main", '#include "Adafruit_SSD1306.h"' not in main)
 expect("SSD1306 active begin removed", "display.begin(SSD1306_SWITCHCAPVCC" not in "\n".join(
     line for line in main.splitlines() if not line.lstrip().startswith("//")
 ))
 expect("SH1106 dependency pinned", "adafruit/Adafruit SH110X@2.1.14" in pio)
+expect("GUI no SSD1306 command API", "display.ssd1306_command(" not in gui_cpp)
+expect("GUI no SSD1306 dim API", "display.dim(" not in gui_cpp)
+expect("GUI uses SH110X contrast API", "display.setContrast(" in gui_cpp)
+expect("GUI raw command uses generic OLED API", "display.oled_command(0xE4);" in gui_cpp)
 
 # System I2C belongs to the board: PMU.begin() owns Wire initialization, OLED and
 # sensors reuse it. Sensor setup must not re-run Wire.begin or move GPIO8/9.
