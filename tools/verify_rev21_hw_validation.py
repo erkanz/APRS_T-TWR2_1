@@ -9,6 +9,16 @@ AFSK = (ROOT / "lib/LibAPRS_ESP32S3/AFSK.cpp").read_text(encoding="utf-8")
 AFSK_H = (ROOT / "lib/LibAPRS_ESP32S3/AFSK.h").read_text(encoding="utf-8")
 MODEM = (ROOT / "lib/LibAPRS_ESP32S3/modem.cpp").read_text(encoding="utf-8")
 
+voice_start = MAIN.find("// PTT push to FM Voice")
+voice_end = MAIN.find("if (digitalRead(BOOT_PIN) == LOW)", voice_start)
+voice_block = MAIN[voice_start:voice_end] if voice_start >= 0 and voice_end > voice_start else ""
+voice_release_ok = (
+    "digitalWrite(SA868_PTT_PIN, LOW); // PTT RF" in voice_block
+    and "while (digitalRead(BUTTON_PTT_PIN) == LOW)" in voice_block
+    and "digitalWrite(SA868_PTT_PIN, HIGH); // Rev2.1 voice PTT release: HIGH=RX/idle" in voice_block
+    and voice_block.find("digitalWrite(SA868_PTT_PIN, HIGH)") > voice_block.find("while (digitalRead(BUTTON_PTT_PIN) == LOW)")
+)
+
 checks = [
     ("tracker counter serial spam removed", 'TRACKER tx_counter=%d' not in MAIN),
     ("PTT deferred flag volatile", "volatile bool pttOFF = false;" in AFSK),
@@ -29,6 +39,7 @@ checks = [
     ("Rev2.1 RX idle high drive", "digitalWrite(_ptt_pin, HIGH);" in AFSK),
     ("TX audio route high", "digitalWrite(17, HIGH);" in AFSK),
     ("RX audio route low", "digitalWrite(17, LOW);" in AFSK),
+    ("voice PTT release drives GPIO41 HIGH/RX", voice_release_ok),
     ("header exposes volatile TX ISR flag", "extern volatile bool hw_afsk_dac_isr;" in AFSK_H),
     ("header exposes transition flags", "extern volatile int8_t adcEn;" in AFSK_H and "extern volatile int8_t dacEn;" in AFSK_H),
     ("header exposes FIFO helper", "void AFSK_FlushRxFifo(void);" in AFSK_H),
