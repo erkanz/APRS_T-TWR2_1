@@ -99,6 +99,11 @@ expect("deep sleep restores normal audio route before radio PD",
        "digitalWrite(config.dac_sel_gpio, LOW); // normal radio/mic audio route" in m)
 expect("deep sleep then asserts SA868 power-down",
        "digitalWrite(config.rf_pd_gpio, LOW);   // SA868 power-down" in m)
+expect("ESP32-S3 Mode C does not use unsupported ALL_LOW wake", "ESP_EXT1_WAKEUP_ALL_LOW" not in m)
+expect("ESP32-S3 Mode C does not configure zero-mask EXT1 wake", "esp_sleep_enable_ext1_wakeup(0x0" not in m)
+expect("Mode C retains timer wake source",
+       "esp_sleep_enable_timer_wakeup((uint64_t)config.pwr_sleep_interval * uS_TO_S_FACTOR);" in m)
+expect("Mode C timer-only wake is documented", "ESP32-S3 Rev2.1 Mode C is timer-wake only" in m)
 
 # Watchdog remains framework-owned.
 expect("TWDT framework-managed", "[REV2.1] TWDT framework-managed" in m)
