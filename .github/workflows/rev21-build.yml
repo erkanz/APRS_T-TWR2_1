@@ -1,0 +1,96 @@
+name: T-TWR Rev2.1 Firmware
+
+on:
+  push:
+    branches:
+      - rev21-hardware-port
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply T-TWR Rev2.1 hardware port
+        run: python tools/rev21_port.py
+
+      - name: Verify Rev2.1 source invariants
+        run: python tools/verify_rev21_port.py
+
+      - name: Install PlatformIO and esptool
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install platformio esptool
+
+      - name: PlatformIO build
+        run: pio run -e esp32s3-twrplus
+
+      - name: Package firmware images
+        shell: bash
+        run: |
+          set -euo pipefail
+          ENV_DIR=.pio/build/esp32s3-twrplus
+          mkdir -p dist
+          cp "$ENV_DIR/firmware.bin" dist/TWR_APRS_Rev21_firmware.bin
+          cp "$ENV_DIR/bootloader.bin" dist/bootloader.bin
+          cp "$ENV_DIR/partitions.bin" dist/partitions.bin
+          BOOT_APP="$(find "$HOME/.platformio" -type f -name boot_app0.bin | head -n 1 || true)"
+          test -n "$BOOT_APP"
+          cp "$BOOT_APP" dist/boot_app0.bin
+          python -m esptool --chip esp32s3 merge-bin \
+            -o dist/TWR_APRS_Rev21_merged.bin \
+            0x0000 dist/bootloader.bin \
+            0x8000 dist/partitions.bin \
+            0xe000 dist/boot_app0.bin \
+            0x10000 dist/TWR_APRS_Rev21_firmware.bin
+          {
+            echo "Repository: $GITHUB_REPOSITORY"
+            echo "Source commit: $GITHUB_SHA"
+            echo "Environment: esp32s3-twrplus"
+            echo "Hardware: LILYGO T-TWR Plus Rev2.1"
+            echo
+            ls -lh dist/*.bin
+          } > dist/BUILD_INFO.txt
+          (cd dist && sha256sum *.bin > SHA256SUMS.txt)
+          cat dist/BUILD_INFO.txt
+          cat dist/SHA256SUMS.txt
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TWR-APRS-Rev21-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit verified Rev2.1 source patch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/rev21-hardware-port'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.cpp include/config.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h
+          if git diff --cached --quiet; then
+            echo "Rev2.1 source patch already committed."
+          else
+            git commit -m "Apply verified T-TWR Rev2.1 hardware port"
+            git push origin HEAD:rev21-hardware-port
+          fi
