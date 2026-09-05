@@ -1,0 +1,156 @@
+name: Fix Rev2.1 Nightly Release Notes
+
+on:
+  push:
+    branches:
+      - rev21-hardware-port
+    paths:
+      - .github/workflows/rev21-fix-nightly-notes.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  edit-notes:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Update release wording
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/release-notes.md <<'EOF'
+          # LILYGO T-TWR Plus Rev2.1 — Nightly Build
+
+          This is the first CI-verified **Nightly Build** for the Rev2.1 hardware port of APRS_T-TWR2_1.
+
+          **Verified firmware source:** `f4a68dff8a2dedeac364771bb632ce2ec2975404`  
+          **Verification workflow:** run `33951336378`  
+          **Target hardware:** LILYGO T-TWR Plus Rev2.1 / ESP32-S3 / SA868S / SH1106 128x64
+
+          > **Nightly status:** This is a development/nightly release, not the final hardware-validated stable release. Software, build, packaging, partition, and compatibility checks are green. Final on-device validation of the latest SH1106/shared-I2C changes is still required before promoting this firmware to stable.
+
+          ## What changed
+
+          ### Rev2.1 hardware profile
+          - Forced the official Rev2.1 SA868S UART mapping: ESP TX GPIO39 / RX GPIO48.
+          - SQL moved to GPIO2 and is treated as active LOW.
+          - SA868S PD is GPIO40, active HIGH.
+          - PTT is GPIO41, active LOW.
+          - APRS RX ADC is GPIO1 and APRS TX audio is GPIO18.
+          - Audio routing control is GPIO17.
+          - Rev2.0-only RF power selector GPIO38 is disabled and is never driven on Rev2.1.
+          - I2C is fixed to SDA GPIO8 / SCL GPIO9 at 400 kHz.
+
+          ### SA868S / PTT / RF safety
+          - PTT now boots HIGH/idle and uses push-pull output on Rev2.1.
+          - TX drives PTT LOW; RX/idle restores it HIGH.
+          - Radio sleep, recovery, and deep-sleep paths explicitly restore safe PTT/audio state before asserting PD LOW.
+          - SA868S HIGH/LOW RF power semantics were corrected to the module's DMOSETGROUP format: HIGH=`0`, LOW=`1`.
+
+          ### PMU and Rev2.1 power domains
+          - Removed Rev2.0 assumptions about a PMU-controlled radio rail.
+          - DC3/DC5/ALDO1/ALDO3/BLDO2/DLDO1 are kept off when unused.
+          - SD, GNSS, and microphone rails are enabled as required.
+          - BLDO1 microphone rail is configured for 2.0 V.
+          - PMU startup diagnostics were reordered so a false pre-initialization "PMU offline" message is no longer emitted.
+          - Mode A/B wake rail handling was normalized for Rev2.1.
+
+          ### SH1106 display and shared I2C bus
+          - Replaced the legacy SSD1306 display path with native Adafruit SH1106 support.
+          - Added a `Rev21SH1106G` compatibility layer so the project's legacy vertical/LSB-first `drawYBitmap()` assets continue to render correctly.
+          - Removed the bundled legacy Adafruit GFX implementation from the active build.
+          - OLED initialization now reuses the already-initialized system `Wire` bus instead of starting I2C again.
+          - Sensor code no longer restarts the shared Wire bus and restores the bus to 400 kHz after sensor activity.
+
+          ### ESP32-S3 runtime / sleep compatibility
+          - Removed invalid zero-mask EXT1 wake configuration.
+          - Rev2.1 Mode C deep sleep uses the supported timer wake path.
+          - Application-level task-watchdog reinitialization/reset calls were removed; the framework manages TWDT.
+          - Charge-current and charge-voltage diagnostic lookup tables are bounds guarded.
+          - Fixed Mode B task lifecycle handling so deleted task handles are not resumed.
+
+          ### Configuration safety
+          - Web configuration paths normalize Rev2.1 RF GPIO/polarity values before saving or RF reinitialization.
+          - Rev2.1 system I2C GPIO8/9 @ 400 kHz is also locked before persistence/runtime use.
+          - Persistent settings cannot silently restore unsafe Rev2.0 hardware assignments.
+
+          ### Board, flash, PSRAM, and OTA profile
+          - Uses the official local `LilyGo-T-TWR-Plus` board definition.
+          - Configured for 16 MB flash, 80 MHz flash clock, QIO board profile, and OPI PSRAM (`qio_opi`).
+          - The pioarduino-generated ROM bootstrap image header remains DIO by design while the board profile itself is QIO/OPI.
+          - Existing A/B OTA partition layout is retained.
+          - Serial update helper writes the same verified application to both `app0` and `app1`, avoiding stale-slot surprises after web OTA.
+
+          ## Verification status
+
+          The exact release payload passed:
+
+          - **74/74** Rev2.1 source/hardware invariants
+          - **51/51** deep compatibility invariants
+          - **31/31** packaged binary/partition invariants
+          - PlatformIO compile and link: **PASS**
+          - Firmware packaging: **PASS**
+          - ESP image checksum and validation hash: **PASS**
+          - Patch idempotence: **PASS**
+          - Committed-source reproducibility: **PASS**
+
+          Build footprint:
+
+          - RAM: 75,668 / 327,680 bytes — 23.1%
+          - Flash: 2,153,030 / 4,194,304 bytes — 51.3%
+          - Application image size: 2,153,856 bytes
+
+          Main payload hashes:
+
+          - `TWR_APRS_Rev21_UPDATE.bin`  
+            `70f2bd839ffb7f9ae730c508bd7fca540259556bbef0389e61a89ed02248855d`
+          - `TWR_APRS_Rev21_FULL_INSTALL.bin`  
+            `ec817994e28d89a4b944a14a95dab7a940a668b0342fe4b62ded6ec39c236e72`
+
+          ## Flashing
+
+          ### First migration from an older/generic T-TWR build — preserve settings
+
+          Use `FLASH_PROFILE_UPDATE_KEEP_SETTINGS.bat COM27` from the Nightly ZIP.
+
+          This writes:
+          - bootloader at `0x0000`
+          - application to `app0` at `0x10000`
+          - the same application to `app1` at `0x410000`
+
+          It does **not** erase NVS, LittleFS, Wi-Fi, callsign, or user settings.
+
+          ### Later serial updates — preserve settings
+
+          Use `FLASH_UPDATE_KEEP_SETTINGS.bat COM27`.
+
+          ### Web OTA
+
+          Use `TWR_APRS_Rev21_UPDATE.bin` after the Rev2.1 board-profile migration has been performed.
+
+          ### Full clean install
+
+          Use `FLASH_FULL_CLEAN_INSTALL.bat COM27` or erase flash and write `TWR_APRS_Rev21_FULL_INSTALL.bin` at `0x0000`.
+
+          A full clean install erases saved configuration.
+
+          ## Validation still required on hardware
+
+          Before promoting this Nightly to a stable hardware-validated release, verify on a physical T-TWR Plus Rev2.1:
+          - SH1106 display rendering and legacy icons/fonts
+          - shared I2C operation without duplicate bus-init warnings
+          - SA868S initialization and PTT idle state
+          - APRS TX start/stop and return to RX
+          - APRS packet decode
+          - Mode A/B/C sleep/wake behavior
+          - persistence of Wi-Fi/callsign/settings across profile migration
+          EOF
+
+          sed -i 's/^          //' /tmp/release-notes.md
+          gh release edit nightly-rev21-2026-09-05 \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease=false \
+            --title "Nightly Build — LILYGO T-TWR Plus Rev2.1 — 2026-09-05" \
+            --notes-file /tmp/release-notes.md
