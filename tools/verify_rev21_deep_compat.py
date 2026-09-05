@@ -10,6 +10,7 @@ web = (ROOT / "src/webservice.cpp").read_text(encoding="utf-8")
 pio = (ROOT / "platformio.ini").read_text(encoding="utf-8")
 legacy_gfx = (ROOT / "lib/Adafruit_GFX/library.properties").read_text(encoding="utf-8")
 seven_segment_font = ROOT / "lib/Adafruit_GFX/Fonts/Seven_Segment24pt7b.h"
+sh1106_compat = (ROOT / "include/rev21_sh1106_compat.h").read_text(encoding="utf-8")
 workflow = (ROOT / ".github/workflows/rev21-build.yml").read_text(encoding="utf-8")
 
 checks = []
@@ -17,15 +18,17 @@ checks = []
 def expect(name, cond):
     checks.append((name, bool(cond)))
 
-expect("SH1106 main header", "#include <Adafruit_SH110X.h>" in main)
-expect("SH1106 main object", "Adafruit_SH1106G display(" in main)
+expect("SH1106 compatibility main header", '#include "rev21_sh1106_compat.h"' in main)
+expect("SH1106 compatibility main object", "Rev21SH1106G display(" in main)
 expect("SH1106 main begin", "display.begin(oled_addr, false);" in main)
-expect("GUI header uses SH1106 include", "#include <Adafruit_SH110X.h>" in gui_h)
-expect("GUI header exports SH1106 display type", "extern Adafruit_SH1106G display;" in gui_h)
+expect("GUI header uses SH1106 compatibility include", '#include "rev21_sh1106_compat.h"' in gui_h)
+expect("GUI header exports compatibility display type", "extern Rev21SH1106G display;" in gui_h)
 expect("GUI header no SSD1306 include", '#include "Adafruit_SSD1306.h"' not in gui_h)
 expect("GUI header no SSD1306 display declaration", "extern Adafruit_SSD1306 display;" not in gui_h)
 expect("GUI BLACK alias maps to SH110X", "#define BLACK SH110X_BLACK" in gui_h)
 expect("GUI WHITE alias maps to SH110X", "#define WHITE SH110X_WHITE" in gui_h)
+expect("SH1106 wrapper derives official driver", "class Rev21SH1106G : public Adafruit_SH1106G" in sh1106_compat)
+expect("SH1106 wrapper preserves vertical LSB bitmap format", "bitmap[i + (page * w)]" in sh1106_compat and "byte & 0x01" in sh1106_compat and "writePixel(x + i, y + bit, color)" in sh1106_compat)
 expect("project seven-segment font exists", seven_segment_font.is_file())
 expect("custom font bypasses ignored legacy include path", '#include "../lib/Adafruit_GFX/Fonts/Seven_Segment24pt7b.h"' in gui_h)
 expect("SSD1306 active include removed from main", '#include "Adafruit_SSD1306.h"' not in main)
