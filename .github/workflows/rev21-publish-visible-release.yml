@@ -1,0 +1,29 @@
+name: Publish Rev2.1 Nightly as Visible Release
+
+on:
+  push:
+    branches:
+      - rev21-hardware-port
+    paths:
+      - .github/workflows/rev21-publish-visible-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-visible:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Promote nightly from prerelease to published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release edit nightly-rev21-2026-09-05 \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease=false \
+            --title "Nightly Build — LILYGO T-TWR Plus Rev2.1 — 2026-09-05"
+          gh release view nightly-rev21-2026-09-05 \
+            --repo "$GITHUB_REPOSITORY" \
+            --json name,tagName,isPrerelease,url
