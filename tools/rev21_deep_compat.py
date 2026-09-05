@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "src/main.cpp"
 GUI_H = ROOT / "include/gui_lcd.h"
+GUI_CPP = ROOT / "src/gui_lcd.cpp"
 SENSOR = ROOT / "src/sensor.cpp"
 WEB = ROOT / "src/webservice.cpp"
 PIO = ROOT / "platformio.ini"
@@ -19,19 +20,8 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 def patch_main() -> None:
     text = MAIN.read_text(encoding="utf-8")
-
-    text = replace_once(
-        text,
-        '#include "Adafruit_SSD1306.h"',
-        '#include <Adafruit_SH110X.h>',
-        "SH1106 include",
-    )
-    text = replace_once(
-        text,
-        'Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);',
-        'Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1, 400000, 400000);',
-        "SH1106 display object",
-    )
+    text = replace_once(text, '#include "Adafruit_SSD1306.h"', '#include <Adafruit_SH110X.h>', "SH1106 include")
+    text = replace_once(text, 'Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);', 'Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1, 400000, 400000);', "SH1106 display object")
     text = replace_once(
         text,
         '  // periphBegin=false prevents Adafruit_SSD1306 from calling Wire.begin() again.\n'
@@ -81,7 +71,6 @@ def patch_main() -> None:
             '                        // Never resume a deleted/stale FreeRTOS task handle.'
         )
         text = text[:stale] + replacement + text[stale + len(stale_resume):]
-
     if text.count('vTaskResume(taskSensorHandle);') != 1:
         raise SystemExit("ERROR: expected exactly one valid Mode A taskSensor resume after patch")
 
@@ -92,7 +81,49 @@ def patch_gui_header() -> None:
     text = GUI_H.read_text(encoding="utf-8")
     text = replace_once(text, '#include "Adafruit_SSD1306.h"', '#include <Adafruit_SH110X.h>', "GUI SH1106 include")
     text = replace_once(text, 'extern Adafruit_SSD1306 display;', 'extern Adafruit_SH1106G display;', "GUI SH1106 display declaration")
+
+    alias_anchor = '#include <Adafruit_SH110X.h>\n'
+    alias_block = '''#include <Adafruit_SH110X.h>
+#ifndef BLACK
+#define BLACK SH110X_BLACK
+#endif
+#ifndef WHITE
+#define WHITE SH110X_WHITE
+#endif
+'''
+    if alias_block not in text:
+        if alias_anchor not in text:
+            raise SystemExit("ERROR: SH1106 include anchor missing for color aliases")
+        text = text.replace(alias_anchor, alias_block, 1)
+
     GUI_H.write_text(text, encoding="utf-8")
+
+
+def patch_gui_cpp() -> None:
+    text = GUI_CPP.read_text(encoding="utf-8")
+
+    # Adafruit_SH1106G inherits setContrast()/oled_command() from Adafruit_GrayOLED
+    # but has no SSD1306-specific dim()/ssd1306_command() methods.
+    text = text.replace('display.dim(true);', 'display.setContrast(0x00);')
+    text = text.replace('display.dim(false);', 'display.setContrast(0xFF);')
+
+    contrast_pair = 'display.ssd1306_command(SSD1306_SETCONTRAST);\n                        display.ssd1306_command(config.contrast);'
+    contrast_new = 'display.setContrast((uint8_t)config.contrast);'
+    text = text.replace(contrast_pair, contrast_new)
+
+    # Preserve the legacy raw OLED command behavior through the generic SH110X API.
+    text = text.replace('display.ssd1306_command(0xE4);', 'display.oled_command(0xE4);')
+
+    # Active SSD1306-only calls must be completely gone. Commented historical
+    # references are harmless, but remove them too to prevent future confusion.
+    text = text.replace('// display.ssd1306_command(SSD1306_SETPRECHARGE);                  // 0xd9', '// SH1106 contrast is handled with display.setContrast()')
+    text = text.replace('// display.ssd1306_command(config.contrast);', '')
+    text = text.replace('// display.ssd1306_command(SSD1306_SETVCOMDETECT);                 // 0xDB', '')
+
+    if 'display.dim(' in text or 'display.ssd1306_command(' in text or 'SSD1306_SETCONTRAST' in text:
+        raise SystemExit("ERROR: active SSD1306-only GUI API remains after SH1106 migration")
+
+    GUI_CPP.write_text(text, encoding="utf-8")
 
 
 def patch_sensor() -> None:
@@ -206,6 +237,7 @@ def patch_platformio() -> None:
 def main() -> None:
     patch_main()
     patch_gui_header()
+    patch_gui_cpp()
     patch_sensor()
     patch_web()
     patch_platformio()
