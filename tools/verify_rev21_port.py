@@ -10,6 +10,7 @@ a = (ROOT / "lib/LibAPRS_ESP32S3/AFSK.cpp").read_text(encoding="utf-8")
 ah = (ROOT / "lib/LibAPRS_ESP32S3/AFSK.h").read_text(encoding="utf-8")
 pio = (ROOT / "platformio.ini").read_text(encoding="utf-8")
 board = (ROOT / "boards/LilyGo-T-TWR-Plus.json").read_text(encoding="utf-8")
+sh1106 = (ROOT / "include/rev21_sh1106_compat.h").read_text(encoding="utf-8")
 
 checks = []
 def expect(name, condition):
@@ -76,9 +77,11 @@ expect("Mode C timer wake retained", "esp_sleep_enable_timer_wakeup((uint64_t)co
 expect("Mode C timer-only documented", "ESP32-S3 Rev2.1 Mode C is timer-wake only" in m)
 
 # Native Rev2.1 SH1106 OLED on the PMU-initialized shared I2C bus.
-expect("native Rev2.1 SH1106 OLED", "Adafruit_SH1106G display(" in m and "display.begin(oled_addr, false);" in m)
-expect("OLED shared bus stays 400kHz", "Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1, 400000, 400000);" in m)
+expect("native Rev2.1 SH1106 OLED", "Rev21SH1106G display(" in m and "display.begin(oled_addr, false);" in m)
+expect("OLED shared bus stays 400kHz", "Rev21SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1, 400000, 400000);" in m)
 expect("legacy SSD1306 driver removed", '#include "Adafruit_SSD1306.h"' not in m and "display.begin(SSD1306_SWITCHCAPVCC" not in "\n".join(line for line in m.splitlines() if not line.lstrip().startswith("//")))
+expect("SH1106 compatibility wrapper derives official driver", "class Rev21SH1106G : public Adafruit_SH1106G" in sh1106)
+expect("legacy vertical bitmap semantics retained", "byte & 0x01" in sh1106 and "bitmap[i + (page * w)]" in sh1106 and "writePixel(x + i, y + bit, color)" in sh1106)
 
 # Runtime stability and diagnostics.
 expect("TWDT framework managed", "[REV2.1] TWDT framework-managed" in m)
