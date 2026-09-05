@@ -6,6 +6,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 files = {
     "main": (ROOT / "src/main.cpp").read_text(encoding="utf-8"),
+    "main_h": (ROOT / "include/main.h").read_text(encoding="utf-8"),
     "config": (ROOT / "include/config.h").read_text(encoding="utf-8"),
     "afsk_cpp": (ROOT / "lib/LibAPRS_ESP32S3/AFSK.cpp").read_text(encoding="utf-8"),
     "afsk_h": (ROOT / "lib/LibAPRS_ESP32S3/AFSK.h").read_text(encoding="utf-8"),
@@ -21,6 +22,7 @@ def no_active(pattern, text):
     return re.search(pattern, text, flags=re.MULTILINE) is None
 
 m = files["main"]
+mh = files["main_h"]
 c = files["config"]
 a = files["afsk_cpp"]
 ah = files["afsk_h"]
@@ -40,6 +42,11 @@ expect("audio DAC GPIO18 forced", "config.dac_gpio = 18;" in m)
 expect("audio mux GPIO17 forced", "config.dac_sel_gpio = 17;" in m)
 expect("I2C SDA/SCL forced to GPIO8/GPIO9", "config.i2c_sda_pin = 8;" in m and "config.i2c_sck_pin = 9;" in m)
 expect("I2C target frequency forced to 400kHz", "config.i2c_freq = 400000;" in m)
+expect("official Rev2.1 extra pins defined",
+       "#define ESP32_PWM_TONE (45)" in mh and
+       "#define ESP_MIC_ADC (15)" in mh and
+       "#define SA868_SQL (2)" in mh and
+       "#define AUDIO_SELECT_PIN (17)" in mh)
 
 # Audio/PTT direction: official Rev2.1 route is GPIO17 HIGH for ESP audio -> radio,
 # LOW for normal mic/radio path; GPIO41 is LOW only while transmitting.
@@ -67,6 +74,21 @@ expect("Rev2.1 radio speaker route keeps ALDO3 off", "PMU.disableALDO3();" in m)
 expect("Rev2.1 PMU disables unused BLDO2/DLDO1", "PMU.disableBLDO2();" in m and "PMU.disableDLDO1();" in m)
 expect("Rev2.1 SD/GNSS/MIC rails enabled", "PMU.enableALDO2();" in m and "PMU.enableALDO4();" in m and "PMU.enableBLDO1();" in m)
 expect("false pre-attempt PMU offline log removed", 'log_d("PMU is not online...")' not in m)
+
+# Sleep/wake must preserve the same Rev2.1 power-domain semantics. Two legacy wake
+# paths (Mode A and Mode B) are marked with this Rev2.1 ALDO3 line after patching.
+expect("Mode A/B wake rails normalized",
+       m.count("PMU.disableALDO3(); // Rev2.1 Radio -> onboard amplifier") == 2)
+expect("wake paths restore only SD/GNSS/MIC baseline",
+       m.count("PMU.enableALDO2();  // SD") == 2 and
+       m.count("PMU.enableALDO4();  // GNSS") == 2 and
+       m.count("PMU.enableBLDO1();  // Microphone") == 2)
+expect("deep sleep deasserts PTT before radio PD",
+       "digitalWrite(config.rf_ptt_gpio, HIGH); // Rev2.1 PTT idle/RX" in m)
+expect("deep sleep restores normal audio route before radio PD",
+       "digitalWrite(config.dac_sel_gpio, LOW); // normal radio/mic audio route" in m)
+expect("deep sleep then asserts SA868 power-down",
+       "digitalWrite(config.rf_pd_gpio, LOW);   // SA868 power-down" in m)
 
 # Watchdog remains framework-owned.
 framework_managed_wdt = "[REV2.1] TWDT framework-managed" in m
