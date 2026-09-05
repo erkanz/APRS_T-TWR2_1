@@ -44,6 +44,9 @@ jobs:
       - name: Apply Rev2.1 full hardware compatibility pass
         run: python tools/rev21_full_compat.py
 
+      - name: Apply Rev2.1 radio safety normalization
+        run: python tools/rev21_radio_safety.py
+
       - name: Verify Rev2.1 source invariants
         run: python tools/verify_rev21_port.py
 
