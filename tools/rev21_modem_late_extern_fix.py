@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MODEM = ROOT / "lib/LibAPRS_ESP32S3/modem.cpp"
 MAIN = ROOT / "src/main.cpp"
+MAIN_H = ROOT / "include/main.h"
 PARSE = ROOT / "src/parse_aprs.cpp"
 
 DUPLICATE = '''extern int8_t adcEn;
@@ -26,6 +27,23 @@ def normalize_modem_externs() -> None:
     MODEM.write_text(text, encoding="utf-8")
 
 
+def patch_main_header() -> None:
+    text = MAIN_H.read_text(encoding="utf-8")
+    old = '''String trk_gps_postion(String comment);
+String trk_fix_position(String comment);
+'''
+    new = '''String trk_gps_postion(String comment, bool forceUncompressed = true);
+String trk_fix_position(String comment, bool forceUncompressed = true);
+'''
+    if old in text:
+        if text.count(old) != 1:
+            raise SystemExit(f"ERROR: expected one tracker declaration block in main.h, found {text.count(old)}")
+        text = text.replace(old, new, 1)
+    elif new not in text:
+        raise SystemExit("ERROR: tracker declarations not found in main.h")
+    MAIN_H.write_text(text, encoding="utf-8")
+
+
 def patch_main() -> int:
     main_text = MAIN.read_text(encoding="utf-8")
 
@@ -42,26 +60,22 @@ def patch_main() -> int:
     if "TRACKER tx_counter=" in main_text:
         raise SystemExit("ERROR: tracker tx_counter serial diagnostic remains after cleanup")
 
-    # AnyTone interoperability: the explicit BOOT/manual beacon keeps the
-    # canonical manualBeaconTx() body expected by the deep compatibility pass.
-    # Its one-argument tracker call therefore takes the default below (force
-    # uncompressed). Periodic tracker calls are explicitly passed false and
-    # continue to honor the user's existing trk_compress setting.
-    prototypes = '''String trk_gps_postion(String comment, bool forceUncompressed = true);
+    # AnyTone interoperability: keep manualBeaconTx() itself byte-for-byte
+    # compatible with the deep compatibility pass.  The default argument lives
+    # only in include/main.h; do not add a second declaration in this .cpp.
+    local_prototypes_true = '''String trk_gps_postion(String comment, bool forceUncompressed = true);
 String trk_fix_position(String comment, bool forceUncompressed = true);
 
 '''
-    old_prototypes = '''String trk_gps_postion(String comment, bool forceUncompressed = false);
+    local_prototypes_false = '''String trk_gps_postion(String comment, bool forceUncompressed = false);
 String trk_fix_position(String comment, bool forceUncompressed = false);
 
 '''
+    main_text = main_text.replace(local_prototypes_true, "", 1)
+    main_text = main_text.replace(local_prototypes_false, "", 1)
     manual_anchor = "void manualBeaconTx()\n{\n"
-    if old_prototypes in main_text:
-        main_text = main_text.replace(old_prototypes, prototypes, 1)
-    elif prototypes not in main_text:
-        if manual_anchor not in main_text:
-            raise SystemExit("ERROR: manualBeaconTx anchor not found")
-        main_text = main_text.replace(manual_anchor, prototypes + manual_anchor, 1)
+    if manual_anchor not in main_text:
+        raise SystemExit("ERROR: manualBeaconTx anchor not found")
 
     old_gps_sig = "String trk_gps_postion(String comment)\n{"
     new_gps_sig = "String trk_gps_postion(String comment, bool forceUncompressed)\n{"
@@ -106,9 +120,9 @@ String trk_fix_position(String comment, bool forceUncompressed = false);
         fix_part = fix_part.replace(fix_body_anchor, fix_body_anchor + compat_log, 1)
     main_text = main_text[:fix_start] + fix_part + main_text[fix_end:]
 
-    # Keep the manual function body itself canonical: its one-argument calls use
-    # forceUncompressed=true by default. The later periodic tracker calls are the
-    # last occurrences in the file and explicitly request normal configured mode.
+    # Keep the manual function body canonical: its one-argument calls resolve to
+    # forceUncompressed=true through include/main.h. Periodic tracker calls are
+    # explicit false so they continue honoring config.trk_compress.
     manual_start = main_text.find(manual_anchor)
     manual_end = main_text.find("void burstAfterVoice()", manual_start)
     if manual_start < 0 or manual_end < 0:
@@ -120,12 +134,12 @@ String trk_fix_position(String comment, bool forceUncompressed = false);
     periodic_gps = "rawData = trk_gps_postion(cmn);"
     periodic_fix = "rawData = trk_fix_position(cmn);"
     gps_idx = main_text.rfind(periodic_gps)
-    fix_idx = main_text.rfind(periodic_fix)
     if gps_idx > manual_end:
         main_text = main_text[:gps_idx] + "rawData = trk_gps_postion(cmn, false);" + main_text[gps_idx + len(periodic_gps):]
     elif "rawData = trk_gps_postion(cmn, false);" not in main_text[manual_end:]:
         raise SystemExit("ERROR: periodic GPS tracker call not found")
-    # Recompute because previous replacement changes offsets.
+
+    # Recompute because the previous replacement changes offsets.
     fix_idx = main_text.rfind(periodic_fix)
     if fix_idx > manual_end:
         main_text = main_text[:fix_idx] + "rawData = trk_fix_position(cmn, false);" + main_text[fix_idx + len(periodic_fix):]
@@ -134,8 +148,8 @@ String trk_fix_position(String comment, bool forceUncompressed = false);
 
     if "TRACKER tx_counter=" in main_text:
         raise SystemExit("ERROR: tracker counter serial spam survived final main patch")
-    if prototypes not in main_text:
-        raise SystemExit("ERROR: manual uncompressed default prototypes missing")
+    if local_prototypes_true in main_text or local_prototypes_false in main_text:
+        raise SystemExit("ERROR: duplicate local tracker prototypes remain in main.cpp")
     if "trk_gps_postion(cmn, false)" not in main_text or "trk_fix_position(cmn, false)" not in main_text:
         raise SystemExit("ERROR: periodic tracker configured-mode calls missing")
 
@@ -219,8 +233,13 @@ def patch_anytone_rx_compat() -> None:
 
 def main() -> None:
     normalize_modem_externs()
+    patch_main_header()
     removed = patch_main()
     patch_anytone_rx_compat()
+
+    header = MAIN_H.read_text(encoding="utf-8")
+    if "String trk_gps_postion(String comment, bool forceUncompressed = true);" not in header:
+        raise SystemExit("ERROR: AnyTone tracker declaration missing from main.h")
 
     print("PASS Rev2.1 late modem adcEn extern normalized")
     print(f"PASS tracker tx_counter serial diagnostics removed: {removed} line(s)")
