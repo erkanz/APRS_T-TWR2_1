@@ -18,7 +18,7 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 def patch_main() -> None:
     text = MAIN.read_text(encoding="utf-8")
 
-    # Rev2.1 carries a 1.3-inch SH1106 128x64 OLED.  The I2C address alone
+    # Rev2.1 carries a 1.3-inch SH1106 128x64 OLED. The I2C address alone
     # does not identify the controller, so use a native SH1106 driver.
     text = replace_once(
         text,
@@ -43,7 +43,7 @@ def patch_main() -> None:
         "SH1106 initialization",
     )
 
-    # Mode B deletes the sensor/network tasks before light sleep.  A deleted
+    # Mode B deletes the sensor/network tasks before light sleep. A deleted
     # FreeRTOS task handle must never be resumed or retained as a live handle.
     old_sensor_delete = '                        vTaskDelete(taskSensorHandle);'
     new_sensor_delete = (
@@ -56,7 +56,6 @@ def patch_main() -> None:
     if new_sensor_delete not in text:
         if old_sensor_delete not in text:
             raise SystemExit("ERROR: Mode B sensor delete pattern not found")
-        # Only the Mode B delete site uses vTaskDelete(taskSensorHandle).
         text = text.replace(old_sensor_delete, new_sensor_delete, 1)
 
     old_network_delete = '                        vTaskDelete(taskNetworkHandle);'
@@ -85,7 +84,6 @@ def patch_main() -> None:
         )
         text = text[:stale] + replacement + text[stale + len(stale_resume):]
 
-    # Leave the valid Mode A suspend/resume pair intact.
     if text.count('vTaskResume(taskSensorHandle);') != 1:
         raise SystemExit("ERROR: expected exactly one valid Mode A taskSensor resume after patch")
 
@@ -95,7 +93,7 @@ def patch_main() -> None:
 def patch_web() -> None:
     text = WEB.read_text(encoding="utf-8")
 
-    helper = '''
+    helper_old = '''
 // T-TWR Plus Rev2.1 has a fixed radio/audio wiring topology.  The legacy
 // generic MOD page still exposes GPIO fields, but those values must never be
 // allowed to re-route live Rev2.1 hardware (GPIO2 is SQL, GPIO4 is PMU IRQ,
@@ -114,18 +112,45 @@ static void enforceRev21RadioHardwareProfile()
     config.rf_ptt_active = LOW;
 }
 '''
+    helper_new = '''
+// T-TWR Plus Rev2.1 has fixed radio/audio wiring and a fixed system I2C bus.
+// Legacy generic setup pages may expose these GPIO fields, but user input must
+// never re-route live board hardware. GPIO2 is SQL, GPIO4 is PMU IRQ, GPIO38 is
+// not the Rev2.1 RF power selector, and GPIO8/9 are the shared AXP2101/SH1106 bus.
+static void enforceRev21RadioHardwareProfile()
+{
+    config.rf_tx_gpio = 39;
+    config.rf_rx_gpio = 48;
+    config.rf_sql_gpio = 2;
+    config.rf_pd_gpio = 40;
+    config.rf_pwr_gpio = -1;
+    config.rf_ptt_gpio = 41;
+    config.rf_sql_active = LOW;
+    config.rf_pd_active = HIGH;
+    config.rf_pwr_active = LOW;
+    config.rf_ptt_active = LOW;
+    config.i2c_sda_pin = 8;
+    config.i2c_sck_pin = 9;
+    config.i2c_freq = 400000;
+}
+'''
     anchor = 'bool defaultSetting = false;\n'
-    if 'static void enforceRev21RadioHardwareProfile()' not in text:
-        if anchor not in text:
-            raise SystemExit("ERROR: webservice helper insertion anchor not found")
-        text = text.replace(anchor, anchor + helper, 1)
+    if helper_new not in text:
+        if helper_old in text:
+            text = text.replace(helper_old, helper_new, 1)
+        elif 'static void enforceRev21RadioHardwareProfile()' not in text:
+            if anchor not in text:
+                raise SystemExit("ERROR: webservice helper insertion anchor not found")
+            text = text.replace(anchor, anchor + helper_new, 1)
+        else:
+            raise SystemExit("ERROR: unexpected Rev2.1 hardware helper; refusing blind edit")
 
-    old = '''\t\tconfig.rf_en = radioEnable;
+    old_radio = '''\t\tconfig.rf_en = radioEnable;
 \t\tString html = "OK";
 \t\trequest->send(200, "text/html", html); // send to someones browser when asked
 \t\tsaveConfiguration("/default.cfg", config);
 \t\tRF_INIT = true;'''
-    new = '''\t\tconfig.rf_en = radioEnable;
+    new_radio = '''\t\tconfig.rf_en = radioEnable;
 \t\t// Rev2.1 radio GPIOs/polarities are board wiring, not user configuration.
 \t\t// Normalize before persisting and before RF_INIT can reprogram live hardware.
 \t\tenforceRev21RadioHardwareProfile();
@@ -133,7 +158,20 @@ static void enforceRev21RadioHardwareProfile()
 \t\trequest->send(200, "text/html", html); // send to someones browser when asked
 \t\tsaveConfiguration("/default.cfg", config);
 \t\tRF_INIT = true;'''
-    text = replace_once(text, old, new, "web radio safety normalization")
+    text = replace_once(text, old_radio, new_radio, "web radio safety normalization")
+
+    old_i2c = '''\t\tconfig.i2c_enable = En;
+\t\tsaveConfiguration("/default.cfg", config);
+\t\tString html = "OK";
+\t\trequest->send(200, "text/html", html);'''
+    new_i2c = '''\t\tconfig.i2c_enable = En;
+\t\t// I2C_0 is the Rev2.1 system bus shared by AXP2101 and SH1106.
+\t\t// Keep its physical pins/clock fixed even if the legacy form posts other values.
+\t\tenforceRev21RadioHardwareProfile();
+\t\tsaveConfiguration("/default.cfg", config);
+\t\tString html = "OK";
+\t\trequest->send(200, "text/html", html);'''
+    text = replace_once(text, old_i2c, new_i2c, "web I2C system-bus normalization")
 
     WEB.write_text(text, encoding="utf-8")
 
