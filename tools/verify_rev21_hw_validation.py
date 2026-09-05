@@ -1,56 +1,26 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import runpy
 
 ROOT = Path(__file__).resolve().parents[1]
-MAIN = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
-CONFIG = (ROOT / "src/config.cpp").read_text(encoding="utf-8")
-WEB = (ROOT / "src/webservice.cpp").read_text(encoding="utf-8")
-AFSK = (ROOT / "lib/LibAPRS_ESP32S3/AFSK.cpp").read_text(encoding="utf-8")
-AFSK_H = (ROOT / "lib/LibAPRS_ESP32S3/AFSK.h").read_text(encoding="utf-8")
-MODEM = (ROOT / "lib/LibAPRS_ESP32S3/modem.cpp").read_text(encoding="utf-8")
 
-voice_start = MAIN.find("// PTT push to FM Voice")
-voice_end = MAIN.find("if (digitalRead(BOOT_PIN) == LOW)", voice_start)
-voice_block = MAIN[voice_start:voice_end] if voice_start >= 0 and voice_end > voice_start else ""
-voice_release_ok = (
-    "digitalWrite(SA868_PTT_PIN, LOW); // PTT RF" in voice_block
-    and "while (digitalRead(BUTTON_PTT_PIN) == LOW)" in voice_block
-    and "digitalWrite(SA868_PTT_PIN, HIGH); // Rev2.1 voice PTT release: HIGH=RX/idle" in voice_block
-    and voice_block.find("digitalWrite(SA868_PTT_PIN, HIGH)") > voice_block.find("while (digitalRead(BUTTON_PTT_PIN) == LOW)")
-)
+# Preserve all established Rev2.1 RF/hardware regression checks.
+runpy.run_path(str(ROOT / "tools/verify_rev21_hw_validation_base.py"), run_name="__main__")
+
+MAIN = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
+WEB = (ROOT / "src/webservice.cpp").read_text(encoding="utf-8")
+AX25 = (ROOT / "lib/LibAPRS_ESP32S3/AX25.cpp").read_text(encoding="utf-8")
+
+rx_only = AX25.find("}else if(fx25Mode==1){")
+rx_tx = AX25.find("}else{", rx_only)
+rx_only_block = AX25[rx_only:rx_tx] if rx_only >= 0 and rx_tx > rx_only else ""
 
 checks = [
-    ("tracker counter serial spam removed", 'TRACKER tx_counter=%d' not in MAIN),
-    ("PTT deferred flag volatile", "volatile bool pttOFF = false;" in AFSK),
-    ("TX ISR flag volatile", "volatile bool hw_afsk_dac_isr = false;" in AFSK),
-    ("ADC transition flag volatile", "volatile int8_t adcEn = 0;" in AFSK),
-    ("DAC transition flag volatile", "volatile int8_t dacEn = 0;" in AFSK),
-    ("ADC DMA blocked during TX", "if (hw_afsk_dac_isr)\n    return true;" in AFSK),
-    ("RX FIFO bounded", "if (fifo.count < BUFFER_SIZE)" in AFSK),
-    ("RX FIFO flush helper", "void AFSK_FlushRxFifo(void)" in AFSK),
-    ("GPIO42 NeoPixel disabled", '_led_strip_pin = -1;' in AFSK and "strip = new Adafruit_NeoPixel" not in AFSK),
-    ("NeoPixel validation log", "NeoPixel GPIO%d disabled during RF validation" in AFSK),
-    ("TX START diagnostic", 'AFSK_LogRadioState("START");' in MODEM),
-    ("TX STOP diagnostic", 'AFSK_LogRadioState("STOP");' in MAIN),
-    ("TX stop deferred out of ISR", "pttOFF = true;" in MODEM and "dacEn = -1;" in MODEM and "adcEn = 1;" in MODEM),
-    ("task context completes PTT off", "if (pttOFF)" in MAIN and "AFSK_FlushRxFifo();" in MAIN),
-    ("DAC stopped before ADC restart", MAIN.find("if (dacEn == 1)") < MAIN.find("if (adcEn == 1)")),
-    ("Rev2.1 active-low TX drive", "digitalWrite(_ptt_pin, LOW);" in AFSK),
-    ("Rev2.1 RX idle high drive", "digitalWrite(_ptt_pin, HIGH);" in AFSK),
-    ("TX audio route high", "digitalWrite(17, HIGH);" in AFSK),
-    ("RX audio route low", "digitalWrite(17, LOW);" in AFSK),
-    ("voice PTT release drives GPIO41 HIGH/RX", voice_release_ok),
-    ("header exposes volatile TX ISR flag", "extern volatile bool hw_afsk_dac_isr;" in AFSK_H),
-    ("header exposes transition flags", "extern volatile int8_t adcEn;" in AFSK_H and "extern volatile int8_t dacEn;" in AFSK_H),
-    ("header exposes FIFO helper", "void AFSK_FlushRxFifo(void);" in AFSK_H),
-    ("modem externs use volatile", "extern volatile bool hw_afsk_dac_isr;" in MODEM and "extern volatile int8_t adcEn;" in MODEM),
-    ("modem has no nonvolatile transition externs", "extern int8_t adcEn;" not in MODEM and "extern int8_t dacEn;" not in MODEM and "extern bool hw_afsk_dac_isr;" not in MODEM),
-    ("main PTT externs use volatile", "extern volatile bool pttON;" in MAIN and "extern volatile bool pttOFF;" in MAIN),
-    ("main ADC/DAC externs use volatile", "extern volatile int8_t adcEn;" in MAIN and "extern volatile int8_t dacEn;" in MAIN),
-    ("config ADC/DAC externs use volatile", "extern volatile int8_t adcEn;" in CONFIG and "extern volatile int8_t dacEn;" in CONFIG),
-    ("web ADC/DAC externs use volatile", "extern volatile int8_t adcEn;" in WEB and "extern volatile int8_t dacEn;" in WEB),
-    ("Rev2.1 PTT profile retained", "config.rf_ptt_gpio = 41;" in MAIN and "config.rf_ptt_active = LOW;" in MAIN),
-    ("GPIO38 RF power remains disabled", "config.rf_pwr_gpio = -1;" in MAIN),
+    ("FX.25 factory default is RX-only", "config.fx25_mode = 1; // Rev2.1 default: FX.25 RX-only; standard AX.25/APRS TX" in MAIN),
+    ("FX.25 RX-only maps to RX enabled / TX disabled", "Ax25Config.fx25 = 1;" in rx_only_block and "Ax25Config.fx25Tx = 0;" in rx_only_block),
+    ("FX.25 RX+TX TX path remains explicit opt-in", "if(Ax25Config.fx25 && Ax25Config.fx25Tx)" in AX25),
+    ("FX.25 standard-APRS compatibility diagnostic present", "[FX25] RX-only active: RF TX remains standard AX.25/APRS." in MAIN),
+    ("FX.25 web UI warns about RX+TX interoperability", "RX recommended: standard AX.25 TX; RX+TX sends FX.25 FEC and may not decode on standard APRS radios" in WEB),
 ]
 
 failed = [name for name, ok in checks if not ok]
@@ -58,6 +28,6 @@ for name, ok in checks:
     print(("PASS" if ok else "FAIL"), name)
 
 if failed:
-    raise SystemExit(f"{len(failed)} Rev2.1 hardware-validation checks failed: {', '.join(failed)}")
+    raise SystemExit(f"{len(failed)} FX.25 interoperability checks failed: {', '.join(failed)}")
 
-print(f"{len(checks)}/{len(checks)} Rev2.1 hardware-validation checks PASS")
+print(f"{len(checks)}/{len(checks)} FX.25 interoperability checks PASS")
