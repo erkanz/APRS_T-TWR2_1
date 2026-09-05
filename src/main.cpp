@@ -3268,7 +3268,10 @@ void setupPower()
       0, 0, 0, 0, 100, 125, 150, 175, 200, 300, 400, 500, 600, 700, 800, 900, 1000};
   uint8_t val = PMU.getChargerConstantCurr();
   log_d("Val = %d", val);
-  log_d("Setting Charge Target Current : %d", currTable[val]);
+  if (val < (sizeof(currTable) / sizeof(currTable[0])))
+    log_d("Setting Charge Target Current : %d", currTable[val]);
+  else
+    log_w("Charge current enum %u is outside legacy display table", (unsigned)val);
 
   // Get charging target voltage
   const uint16_t tableVoltage[] = {
@@ -3722,17 +3725,10 @@ void setup()
 
   delay(1000);
   upTimeStamp = millis() / 1000;
-  esp_task_wdt_config_t twdt_config = {
-    .timeout_ms = 30000, // 30 seconds
-    .idle_core_mask = 0, // Do not subscribe IDLE0/IDLE1 to the user TWDT
-    .trigger_panic = false,
-  };
-  esp_err_t twdt_rc = esp_task_wdt_reconfigure(&twdt_config);
-  if (twdt_rc == ESP_ERR_INVALID_STATE)
-    twdt_rc = esp_task_wdt_init(&twdt_config);
-  printf("[REV2.1] TWDT configure rc=%d\n", (int)twdt_rc);
-  if (esp_task_wdt_status(NULL) != ESP_OK)
-    esp_task_wdt_add(NULL);
+  // Rev2.1: leave the global Task Watchdog under Arduino/ESP-IDF ownership.
+  // Reconfiguring it here breaks framework idle-task subscriptions and causes
+  // repeated "esp_task_wdt_reset: task not found" diagnostics.
+  printf("[REV2.1] TWDT framework-managed\n");
 StandByTick = millis() + (config.pwr_stanby_delay * 1000);
 }
 
@@ -4962,7 +4958,7 @@ void loop()
   }
   if (millis() > timeSleep)
     {
-        esp_task_wdt_reset();
+        // Rev2.1: framework-managed TWDT; no task-local reset.
         timeSleep = millis() + 1000;
 
         if (config.pwr_en)
@@ -5000,7 +4996,7 @@ void loop()
                         // Rev2.1: DC3 unused; no radio control through this rail.
 #endif
                         setCpuFrequencyMhz(80);
-                        esp_task_wdt_reset();
+                        // Rev2.1: framework-managed TWDT; no task-local reset.
                         delay(100);
                     }
                     else
@@ -5112,7 +5108,7 @@ void loop()
 #else
                         setCpuFrequencyMhz(160);
 #endif
-                        esp_task_wdt_reset();
+                        // Rev2.1: framework-managed TWDT; no task-local reset.
                         // esp_task_wdt_init(WDT_TIMEOUT, true); // enable panic so ESP32 restarts
                         // esp_task_wdt_add(NULL);               // add current thread to WDT watch
                         // esp_task_wdt_reset();
