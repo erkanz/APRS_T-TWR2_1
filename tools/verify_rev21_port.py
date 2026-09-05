@@ -48,12 +48,22 @@ expect("official Rev2.1 extra pins defined",
        "#define SA868_SQL (2)" in mh and
        "#define AUDIO_SELECT_PIN (17)" in mh)
 
-# Audio/PTT direction: official Rev2.1 route is GPIO17 HIGH for ESP audio -> radio,
-# LOW for normal mic/radio path; GPIO41 is LOW only while transmitting.
+# Audio/PTT direction and electrical mode.
 expect("AFSK TX selects ESP-to-radio audio path", "digitalWrite(17, HIGH);" in a)
 expect("AFSK RX restores normal radio audio path", "digitalWrite(17, LOW);" in a)
+expect("MIC_CTRL uses official Rev2.1 open-drain routing", "pinMode(SA868_MIC_SEL, OUTPUT_OPEN_DRAIN);" in m)
 expect("SA868 boot holds PTT HIGH idle", "digitalWrite(SA868_PTT_PIN, HIGH); // Rev2.1 idle/RX; PTT is active LOW" in m)
 expect("AFSK fallback PTT polarity active LOW", "_ptt_active = LOW" in a)
+expect("Rev2.1 PTT no longer depends on open-drain pull-up", "pinMode(_ptt_pin, OUTPUT_OPEN_DRAIN);" not in a)
+expect("Rev2.1 active-low TX uses push-pull LOW", "push-pull LOW=TX" in a)
+expect("Rev2.1 idle uses push-pull HIGH", "push-pull HIGH=RX/idle" in a)
+
+# Generic radio sleep/recovery ordering must deassert PTT, restore normal audio,
+# then assert PD. These are separate from Mode-C deep-sleep ordering below.
+expect("RF_MODULE_SLEEP deasserts PTT before PD", "digitalWrite(SA868_PTT_PIN, HIGH); // Rev2.1 RX/idle before radio sleep" in m)
+expect("RF_MODULE_SLEEP restores normal audio before PD", "digitalWrite(SA868_MIC_SEL, LOW);  // normal microphone/radio audio route" in m)
+expect("RF recovery deasserts PTT before PD cycle", "digitalWrite(SA868_PTT_PIN, HIGH); // Rev2.1 RX/idle before recovery cycle" in m)
+expect("RF recovery restores normal audio before PD cycle", "digitalWrite(SA868_MIC_SEL, LOW);  // normal microphone/radio audio route" in m)
 
 # Rev2.1 SA868S RF power is encoded in DMOSETGROUP (0=HIGH, 1=LOW), not GPIO38.
 expect("Rev2.1 SA868S power-bit helper present", "return highPower ? 0 : 1;" in m)
@@ -91,8 +101,7 @@ expect("deep sleep then asserts SA868 power-down",
        "digitalWrite(config.rf_pd_gpio, LOW);   // SA868 power-down" in m)
 
 # Watchdog remains framework-owned.
-framework_managed_wdt = "[REV2.1] TWDT framework-managed" in m
-expect("TWDT framework-managed", framework_managed_wdt)
+expect("TWDT framework-managed", "[REV2.1] TWDT framework-managed" in m)
 expect("no active application TWDT reset", no_active(r"^\s*esp_task_wdt_reset\(\);", m))
 expect("no active TWDT reconfigure", no_active(r"^\s*esp_task_wdt_reconfigure\(", m))
 expect("no active TWDT init", no_active(r"^\s*esp_task_wdt_init\(", m))
