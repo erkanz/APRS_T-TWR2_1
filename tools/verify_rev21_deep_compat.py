@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 main = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
+gui_h = (ROOT / "include/gui_lcd.h").read_text(encoding="utf-8")
 web = (ROOT / "src/webservice.cpp").read_text(encoding="utf-8")
 pio = (ROOT / "platformio.ini").read_text(encoding="utf-8")
 workflow = (ROOT / ".github/workflows/rev21-build.yml").read_text(encoding="utf-8")
@@ -13,10 +14,14 @@ def expect(name, cond):
     checks.append((name, bool(cond)))
 
 # Official Rev2.1 OLED controller, not merely I2C-address detection.
-expect("SH1106 header", "#include <Adafruit_SH110X.h>" in main)
-expect("SH1106 object", "Adafruit_SH1106G display(" in main)
-expect("SH1106 begin", "display.begin(oled_addr, false);" in main)
-expect("SSD1306 active include removed", '#include "Adafruit_SSD1306.h"' not in main)
+expect("SH1106 main header", "#include <Adafruit_SH110X.h>" in main)
+expect("SH1106 main object", "Adafruit_SH1106G display(" in main)
+expect("SH1106 main begin", "display.begin(oled_addr, false);" in main)
+expect("GUI header uses SH1106 include", "#include <Adafruit_SH110X.h>" in gui_h)
+expect("GUI header exports SH1106 display type", "extern Adafruit_SH1106G display;" in gui_h)
+expect("GUI header no SSD1306 include", '#include "Adafruit_SSD1306.h"' not in gui_h)
+expect("GUI header no SSD1306 display declaration", "extern Adafruit_SSD1306 display;" not in gui_h)
+expect("SSD1306 active include removed from main", '#include "Adafruit_SSD1306.h"' not in main)
 expect("SSD1306 active begin removed", "display.begin(SSD1306_SWITCHCAPVCC" not in "\n".join(
     line for line in main.splitlines() if not line.lstrip().startswith("//")
 ))
