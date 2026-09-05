@@ -97,6 +97,20 @@ jobs:
           fi
           cp "$BOOT_APP" dist/boot_app0.bin
           python -m esptool --chip esp32s3 merge-bin -o dist/TWR_APRS_Rev21_FULL_INSTALL.bin 0x0000 dist/bootloader.bin 0x8000 dist/partitions.bin 0xe000 dist/boot_app0.bin 0x10000 dist/TWR_APRS_Rev21_UPDATE.bin
+
+          cat > dist/FLASH_PROFILE_UPDATE_KEEP_SETTINGS.bat <<'EOF'
+          @echo off
+          setlocal
+          set PORT=%~1
+          if "%PORT%"=="" set /p PORT=Enter COM port (example COM27): 
+          python -m esptool --chip esp32s3 --port %PORT% --baud 921600 write_flash -z 0x0000 bootloader.bin 0x10000 TWR_APRS_Rev21_UPDATE.bin 0x410000 TWR_APRS_Rev21_UPDATE.bin
+          if errorlevel 1 exit /b %errorlevel%
+          echo.
+          echo Rev2.1 board-profile migration complete. Bootloader and both OTA app slots were updated; settings were not erased.
+          endlocal
+          EOF
+          sed -i 's/^          //' dist/FLASH_PROFILE_UPDATE_KEEP_SETTINGS.bat
+
           cat > dist/FLASH_UPDATE_KEEP_SETTINGS.bat <<'EOF'
           @echo off
           setlocal
@@ -109,6 +123,7 @@ jobs:
           endlocal
           EOF
           sed -i 's/^          //' dist/FLASH_UPDATE_KEEP_SETTINGS.bat
+
           cat > dist/FLASH_FULL_CLEAN_INSTALL.bat <<'EOF'
           @echo off
           setlocal
@@ -123,24 +138,38 @@ jobs:
           endlocal
           EOF
           sed -i 's/^          //' dist/FLASH_FULL_CLEAN_INSTALL.bat
+
           cat > dist/FLASH_INSTRUCTIONS.txt <<'EOF'
           LILYGO T-TWR Plus Rev2.1 - FULL COMPATIBILITY BUILD
           ===================================================
 
-          RECOMMENDED SERIAL UPDATE - PRESERVES SETTINGS
-          ------------------------------------------------------
-          The firmware has A/B OTA partitions. Web OTA may make either app0 or
-          app1 the currently selected boot slot, so a serial update writes the
-          same verified application image to BOTH OTA slots. NVS, OTA metadata,
-          LittleFS and user settings are not erased.
+          FIRST REV2.1 BOARD-PROFILE MIGRATION - PRESERVES SETTINGS
+          ---------------------------------------------------------
+          Use this once when moving from an older/generic T-TWR build to this
+          verified Rev2.1 hardware profile. It updates the second-stage
+          bootloader plus BOTH A/B application slots. It does NOT erase or
+          rewrite the partition table, OTA metadata, NVS, LittleFS, Wi-Fi,
+          callsign or other saved settings.
 
-          The PlatformIO Arduino builder intentionally uses a DIO ROM-bootstrap
-          image even when the board is configured for QIO flash; the second-stage
-          bootloader enables the configured Quad-I/O mode.
+            bootloader: 0x0000
+            app0:       0x10000
+            app1:       0x410000
+            Do NOT run erase_flash.
 
-            File:    TWR_APRS_Rev21_UPDATE.bin
-            app0:    0x10000
-            app1:    0x410000
+            python -m esptool --chip esp32s3 --port COMxx --baud 921600 write_flash -z 0x0000 bootloader.bin 0x10000 TWR_APRS_Rev21_UPDATE.bin 0x410000 TWR_APRS_Rev21_UPDATE.bin
+
+          Windows helper:
+            FLASH_PROFILE_UPDATE_KEEP_SETTINGS.bat COM27
+
+          NORMAL SERIAL UPDATE AFTER PROFILE MIGRATION - PRESERVES SETTINGS
+          -----------------------------------------------------------------
+          Web OTA may make either app0 or app1 the selected boot slot, so the
+          serial helper writes the same verified application image to BOTH
+          OTA slots. It does not touch bootloader, partition table, OTA metadata,
+          NVS or LittleFS.
+
+            app0: 0x10000
+            app1: 0x410000
             Do NOT run erase_flash.
 
             python -m esptool --chip esp32s3 --port COMxx --baud 921600 write_flash -z 0x10000 TWR_APRS_Rev21_UPDATE.bin 0x410000 TWR_APRS_Rev21_UPDATE.bin
@@ -148,8 +177,15 @@ jobs:
           Windows helper:
             FLASH_UPDATE_KEEP_SETTINGS.bat COM27
 
+          WEB OTA
+          -------
+          After the board-profile migration, TWR_APRS_Rev21_UPDATE.bin is the
+          raw application image for the firmware's web OTA updater. Web OTA
+          preserves user configuration and lets the bootloader select the OTA
+          slot normally.
+
           CLEAN/FULL INSTALL - ERASES SETTINGS
-          ------------------------------------------------------
+          ------------------------------------
             File:   TWR_APRS_Rev21_FULL_INSTALL.bin
             Offset: 0x0000
 
@@ -158,8 +194,15 @@ jobs:
 
           Windows helper:
             FLASH_FULL_CLEAN_INSTALL.bat COM27
+
+          NOTE ON ESP IMAGE HEADERS
+          -------------------------
+          The pioarduino builder emits DIO ROM-bootstrap image headers while the
+          LilyGo-T-TWR-Plus board configuration itself is QIO/OPI. The verified
+          board profile is qio_opi with 16MB flash and 80MHz flash clock.
           EOF
           sed -i 's/^          //' dist/FLASH_INSTRUCTIONS.txt
+
           {
             echo "Repository: $GITHUB_REPOSITORY"
             echo "Source commit: $GITHUB_SHA"
@@ -169,8 +212,9 @@ jobs:
             echo "Display controller: SH1106 128x64"
             echo "Configured flash: QIO 80MHz / 16MB"
             echo "PSRAM topology: OPI (qio_opi memory profile)"
-            echo "ROM bootstrap header: DIO by PlatformIO Arduino design; second stage enables QIO"
-            echo "SERIAL UPDATE image offsets: app0 0x10000 + app1 0x410000, no erase, settings preserved"
+            echo "ROM bootstrap image headers: DIO (pioarduino); board profile: QIO/OPI"
+            echo "FIRST PROFILE UPDATE: bootloader 0x0000 + app0 0x10000 + app1 0x410000, no erase"
+            echo "NORMAL SERIAL UPDATE: app0 0x10000 + app1 0x410000, no erase"
             echo "FULL_INSTALL image offset: 0x0000 after erase"
             echo
             ls -lh dist/*.bin
@@ -202,10 +246,16 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main.cpp include/gui_lcd.h src/gui_lcd.cpp src/sensor.cpp src/webservice.cpp include/main.h include/config.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h platformio.ini boards/LilyGo-T-TWR-Plus.json
+          git add src/main.cpp include/gui_lcd.h src/gui_lcd.cpp src/sensor.cpp src/webservice.cpp include/main.h include/config.h include/rev21_sh1106_compat.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/Adafruit_GFX/library.properties platformio.ini boards/LilyGo-T-TWR-Plus.json
           if git diff --cached --quiet; then
             echo "PASS no generated source changes; committed source is reproducible."
           else
+            REMOTE_HEAD="$(git ls-remote origin refs/heads/rev21-hardware-port | awk '{print $1}')"
+            if [ "$REMOTE_HEAD" != "$GITHUB_SHA" ]; then
+              echo "SKIP source auto-commit: branch advanced from $GITHUB_SHA to $REMOTE_HEAD during this run."
+              echo "A newer workflow run will verify and commit the current branch state."
+              exit 0
+            fi
             git commit -m "Apply verified T-TWR Rev2.1 deep compatibility fixes"
             git push origin HEAD:rev21-hardware-port
           fi
