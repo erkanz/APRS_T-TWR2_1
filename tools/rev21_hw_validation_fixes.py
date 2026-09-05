@@ -6,6 +6,7 @@ AFSK = ROOT / "lib/LibAPRS_ESP32S3/AFSK.cpp"
 AFSK_H = ROOT / "lib/LibAPRS_ESP32S3/AFSK.h"
 MODEM = ROOT / "lib/LibAPRS_ESP32S3/modem.cpp"
 MAIN = ROOT / "src/main.cpp"
+CONFIG = ROOT / "src/config.cpp"
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
@@ -212,6 +213,10 @@ def patch_main() -> None:
         "extern bool pttON;\nextern bool pttOFF;",
         "extern volatile bool pttON;\nextern volatile bool pttOFF;",
         "volatile main PTT transition externs")
+    text = replace_once(text,
+        "extern int8_t adcEn;\nextern int8_t dacEn;",
+        "extern volatile int8_t adcEn;\nextern volatile int8_t dacEn;",
+        "volatile main ADC/DAC transition externs")
 
     old_transition = '''    if (adcEn == 1)
     {
@@ -272,11 +277,21 @@ def patch_main() -> None:
     MAIN.write_text(text, encoding="utf-8")
 
 
+def patch_config() -> None:
+    text = CONFIG.read_text(encoding="utf-8")
+    text = replace_once(text,
+        "extern int8_t adcEn;\nextern int8_t dacEn;",
+        "extern volatile int8_t adcEn;\nextern volatile int8_t dacEn;",
+        "volatile config ADC/DAC transition externs")
+    CONFIG.write_text(text, encoding="utf-8")
+
+
 def main() -> None:
     patch_afsk()
     patch_afsk_header()
     patch_modem()
     patch_main()
+    patch_config()
     print("Applied Rev2.1 physical RF validation fixes.")
 
 

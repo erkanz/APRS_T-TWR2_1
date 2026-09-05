@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          FILES="src/main.cpp lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/LibAPRS_ESP32S3/modem.cpp"
+          FILES="src/main.cpp src/config.cpp lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/LibAPRS_ESP32S3/modem.cpp"
           BEFORE="$(sha256sum $FILES | sha256sum | awk '{print $1}')"
           python tools/rev21_hw_validation_fixes.py
           AFTER="$(sha256sum $FILES | sha256sum | awk '{print $1}')"
@@ -72,7 +72,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- src/main.cpp lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/LibAPRS_ESP32S3/modem.cpp; then
+          if git diff --quiet -- src/main.cpp src/config.cpp lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/LibAPRS_ESP32S3/modem.cpp; then
             echo "dirty=false" >> "$GITHUB_OUTPUT"
           else
             echo "dirty=true" >> "$GITHUB_OUTPUT"
@@ -136,6 +136,6 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main.cpp lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/LibAPRS_ESP32S3/modem.cpp
+          git add src/main.cpp src/config.cpp lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/LibAPRS_ESP32S3/modem.cpp
           git commit -m "Apply Rev2.1 physical RF validation fixes"
           git push origin HEAD:rev21-hardware-port

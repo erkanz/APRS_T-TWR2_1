@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
+CONFIG = (ROOT / "src/config.cpp").read_text(encoding="utf-8")
 AFSK = (ROOT / "lib/LibAPRS_ESP32S3/AFSK.cpp").read_text(encoding="utf-8")
 AFSK_H = (ROOT / "lib/LibAPRS_ESP32S3/AFSK.h").read_text(encoding="utf-8")
 MODEM = (ROOT / "lib/LibAPRS_ESP32S3/modem.cpp").read_text(encoding="utf-8")
@@ -32,6 +33,10 @@ checks = [
     ("header exposes FIFO helper", "void AFSK_FlushRxFifo(void);" in AFSK_H),
     ("modem externs use volatile", "extern volatile bool hw_afsk_dac_isr;" in MODEM and "extern volatile int8_t adcEn;" in MODEM),
     ("main PTT externs use volatile", "extern volatile bool pttON;" in MAIN and "extern volatile bool pttOFF;" in MAIN),
+    ("main ADC/DAC externs use volatile", "extern volatile int8_t adcEn;" in MAIN and "extern volatile int8_t dacEn;" in MAIN),
+    ("config ADC/DAC externs use volatile", "extern volatile int8_t adcEn;" in CONFIG and "extern volatile int8_t dacEn;" in CONFIG),
+    ("no stale nonvolatile ADC extern", "extern int8_t adcEn;" not in MAIN and "extern int8_t adcEn;" not in CONFIG and "extern int8_t adcEn;" not in MODEM),
+    ("no stale nonvolatile DAC extern", "extern int8_t dacEn;" not in MAIN and "extern int8_t dacEn;" not in CONFIG and "extern int8_t dacEn;" not in MODEM),
     ("Rev2.1 PTT profile retained", "config.rf_ptt_gpio = 41;" in MAIN and "config.rf_ptt_active = LOW;" in MAIN),
     ("GPIO38 RF power remains disabled", "config.rf_pwr_gpio = -1;" in MAIN),
 ]
