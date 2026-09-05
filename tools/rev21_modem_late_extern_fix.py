@@ -42,15 +42,23 @@ def patch_main() -> int:
     if "TRACKER tx_counter=" in main_text:
         raise SystemExit("ERROR: tracker tx_counter serial diagnostic remains after cleanup")
 
-    # AnyTone analog APRS interoperability test path. Keep the user's periodic
-    # tracker compression preference intact, but make an explicit BOOT/manual
-    # beacon use the universally understood uncompressed position format.
-    prototypes = '''String trk_gps_postion(String comment, bool forceUncompressed = false);
+    # AnyTone interoperability: the explicit BOOT/manual beacon keeps the
+    # canonical manualBeaconTx() body expected by the deep compatibility pass.
+    # Its one-argument tracker call therefore takes the default below (force
+    # uncompressed). Periodic tracker calls are explicitly passed false and
+    # continue to honor the user's existing trk_compress setting.
+    prototypes = '''String trk_gps_postion(String comment, bool forceUncompressed = true);
+String trk_fix_position(String comment, bool forceUncompressed = true);
+
+'''
+    old_prototypes = '''String trk_gps_postion(String comment, bool forceUncompressed = false);
 String trk_fix_position(String comment, bool forceUncompressed = false);
 
 '''
     manual_anchor = "void manualBeaconTx()\n{\n"
-    if prototypes not in main_text:
+    if old_prototypes in main_text:
+        main_text = main_text.replace(old_prototypes, prototypes, 1)
+    elif prototypes not in main_text:
         if manual_anchor not in main_text:
             raise SystemExit("ERROR: manualBeaconTx anchor not found")
         main_text = main_text.replace(manual_anchor, prototypes + manual_anchor, 1)
@@ -78,9 +86,12 @@ String trk_fix_position(String comment, bool forceUncompressed = false);
         if "if (config.trk_compress)" not in gps_part:
             raise SystemExit("ERROR: GPS tracker compression branch not found")
         gps_part = gps_part.replace("if (config.trk_compress)", "if (config.trk_compress && !forceUncompressed)", 1)
-        main_text = main_text[:gps_start] + gps_part + main_text[fix_start:]
+    compat_log = '  if (forceUncompressed)\n    log_i("[APRS COMPAT] beacon format=UNCOMPRESSED");\n'
+    if compat_log not in gps_part:
+        gps_body_anchor = new_gps_sig + "\n"
+        gps_part = gps_part.replace(gps_body_anchor, gps_body_anchor + compat_log, 1)
+    main_text = main_text[:gps_start] + gps_part + main_text[fix_start:]
 
-    # Recalculate offsets after the previous replacement.
     fix_start = main_text.find(new_fix_sig)
     fix_end = main_text.find("String igate_position(", fix_start)
     if fix_start < 0 or fix_end < 0:
@@ -90,24 +101,43 @@ String trk_fix_position(String comment, bool forceUncompressed = false);
         if "if (config.trk_compress)" not in fix_part:
             raise SystemExit("ERROR: fixed tracker compression branch not found")
         fix_part = fix_part.replace("if (config.trk_compress)", "if (config.trk_compress && !forceUncompressed)", 1)
-        main_text = main_text[:fix_start] + fix_part + main_text[fix_end:]
+    if compat_log not in fix_part:
+        fix_body_anchor = new_fix_sig + "\n"
+        fix_part = fix_part.replace(fix_body_anchor, fix_body_anchor + compat_log, 1)
+    main_text = main_text[:fix_start] + fix_part + main_text[fix_end:]
 
+    # Keep the manual function body itself canonical: its one-argument calls use
+    # forceUncompressed=true by default. The later periodic tracker calls are the
+    # last occurrences in the file and explicitly request normal configured mode.
     manual_start = main_text.find(manual_anchor)
     manual_end = main_text.find("void burstAfterVoice()", manual_start)
     if manual_start < 0 or manual_end < 0:
         raise SystemExit("ERROR: manual beacon function range not found")
     manual = main_text[manual_start:manual_end]
-    manual = manual.replace("rawData = trk_gps_postion(cmn);", "rawData = trk_gps_postion(cmn, true);", 1)
-    manual = manual.replace("rawData = trk_fix_position(cmn);", "rawData = trk_fix_position(cmn, true);", 1)
-    compat_log = '  log_i("[MANUAL BEACON] compatibility format=UNCOMPRESSED");\n\n'
-    if compat_log not in manual:
-        insert_before = "  if (rawData.length() == 0)\n"
-        if insert_before not in manual:
-            raise SystemExit("ERROR: manual beacon rawData validation anchor not found")
-        manual = manual.replace(insert_before, compat_log + insert_before, 1)
-    if "trk_gps_postion(cmn, true)" not in manual or "trk_fix_position(cmn, true)" not in manual:
-        raise SystemExit("ERROR: manual beacon is not forcing uncompressed APRS")
-    main_text = main_text[:manual_start] + manual + main_text[manual_end:]
+    if "trk_gps_postion(cmn);" not in manual or "trk_fix_position(cmn);" not in manual:
+        raise SystemExit("ERROR: canonical manual beacon tracker calls not found")
+
+    periodic_gps = "rawData = trk_gps_postion(cmn);"
+    periodic_fix = "rawData = trk_fix_position(cmn);"
+    gps_idx = main_text.rfind(periodic_gps)
+    fix_idx = main_text.rfind(periodic_fix)
+    if gps_idx > manual_end:
+        main_text = main_text[:gps_idx] + "rawData = trk_gps_postion(cmn, false);" + main_text[gps_idx + len(periodic_gps):]
+    elif "rawData = trk_gps_postion(cmn, false);" not in main_text[manual_end:]:
+        raise SystemExit("ERROR: periodic GPS tracker call not found")
+    # Recompute because previous replacement changes offsets.
+    fix_idx = main_text.rfind(periodic_fix)
+    if fix_idx > manual_end:
+        main_text = main_text[:fix_idx] + "rawData = trk_fix_position(cmn, false);" + main_text[fix_idx + len(periodic_fix):]
+    elif "rawData = trk_fix_position(cmn, false);" not in main_text[manual_end:]:
+        raise SystemExit("ERROR: periodic fixed tracker call not found")
+
+    if "TRACKER tx_counter=" in main_text:
+        raise SystemExit("ERROR: tracker counter serial spam survived final main patch")
+    if prototypes not in main_text:
+        raise SystemExit("ERROR: manual uncompressed default prototypes missing")
+    if "trk_gps_postion(cmn, false)" not in main_text or "trk_fix_position(cmn, false)" not in main_text:
+        raise SystemExit("ERROR: periodic tracker configured-mode calls missing")
 
     MAIN.write_text(main_text, encoding="utf-8")
     return removed
@@ -121,7 +151,7 @@ def patch_anytone_rx_compat() -> None:
 \tlog_d("sscanf posbuf='%s'", posbuf);
 '''
         compat = '''\t// Rev2.1 AnyTone compatibility: normalize minute-hundredths overflow.
-\t// Some analog APRS frames have been observed with e.g. 10849.:0E.  The
+\t// Some analog APRS frames have been observed with e.g. 10849.:0E. The
 \t// AX.25 FCS is valid, so this is a sender-side coordinate formatting edge
 \t// case: ':' is ASCII '0'+10, representing hundredths 100..109 without the
 \t// carry into the minutes field. Repair only that impossible APRS pattern in
@@ -192,15 +222,9 @@ def main() -> None:
     removed = patch_main()
     patch_anytone_rx_compat()
 
-    final_main = MAIN.read_text(encoding="utf-8")
-    if "TRACKER tx_counter=" in final_main:
-        raise SystemExit("ERROR: tracker counter serial spam survived final pass")
-    if "trk_gps_postion(cmn, true)" not in final_main:
-        raise SystemExit("ERROR: manual uncompressed APRS compatibility path missing")
-
     print("PASS Rev2.1 late modem adcEn extern normalized")
     print(f"PASS tracker tx_counter serial diagnostics removed: {removed} line(s)")
-    print("PASS manual beacon forces uncompressed APRS compatibility format")
+    print("PASS manual beacon defaults to uncompressed APRS; periodic tracker preserves configured mode")
     print("PASS malformed minute-hundredths APRS compatibility normalization installed")
 
 
