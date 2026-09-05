@@ -20,8 +20,8 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 def patch_main() -> None:
     text = MAIN.read_text(encoding="utf-8")
-    text = replace_once(text, '#include "Adafruit_SSD1306.h"', '#include <Adafruit_SH110X.h>', "SH1106 include")
-    text = replace_once(text, 'Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);', 'Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1, 400000, 400000);', "SH1106 display object")
+    text = replace_once(text, '#include "Adafruit_SSD1306.h"', '#include "rev21_sh1106_compat.h"', "SH1106 compatibility include")
+    text = replace_once(text, 'Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);', 'Rev21SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1, 400000, 400000);', "SH1106 compatibility display object")
     text = replace_once(
         text,
         '  // periphBegin=false prevents Adafruit_SSD1306 from calling Wire.begin() again.\n'
@@ -82,8 +82,8 @@ def patch_main() -> None:
 
 def patch_gui_header() -> None:
     text = GUI_H.read_text(encoding="utf-8")
-    text = replace_once(text, '#include "Adafruit_SSD1306.h"', '#include <Adafruit_SH110X.h>', "GUI SH1106 include")
-    text = replace_once(text, 'extern Adafruit_SSD1306 display;', 'extern Adafruit_SH1106G display;', "GUI SH1106 display declaration")
+    text = replace_once(text, '#include "Adafruit_SSD1306.h"', '#include "rev21_sh1106_compat.h"', "GUI SH1106 compatibility include")
+    text = replace_once(text, 'extern Adafruit_SSD1306 display;', 'extern Rev21SH1106G display;', "GUI SH1106 compatibility display declaration")
 
     # Seven_Segment24pt7b is a project-specific font stored in the historical
     # bundled GFX tree. Keep only the font data; do not put that legacy library
@@ -95,8 +95,8 @@ def patch_gui_header() -> None:
         "project seven-segment font path",
     )
 
-    alias_anchor = '#include <Adafruit_SH110X.h>\n'
-    alias_block = '''#include <Adafruit_SH110X.h>
+    alias_anchor = '#include "rev21_sh1106_compat.h"\n'
+    alias_block = '''#include "rev21_sh1106_compat.h"
 #ifndef BLACK
 #define BLACK SH110X_BLACK
 #endif
@@ -106,7 +106,7 @@ def patch_gui_header() -> None:
 '''
     if alias_block not in text:
         if alias_anchor not in text:
-            raise SystemExit("ERROR: SH1106 include anchor missing for color aliases")
+            raise SystemExit("ERROR: SH1106 compatibility include anchor missing for color aliases")
         text = text.replace(alias_anchor, alias_block, 1)
 
     GUI_H.write_text(text, encoding="utf-8")
