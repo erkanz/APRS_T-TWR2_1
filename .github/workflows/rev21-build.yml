@@ -47,6 +47,9 @@ jobs:
       - name: Apply Rev2.1 radio safety normalization
         run: python tools/rev21_radio_safety.py
 
+      - name: Apply ESP32-S3 sleep compatibility fix
+        run: python tools/rev21_sleep_compat.py
+
       - name: Verify Rev2.1 source invariants
         run: python tools/verify_rev21_port.py
 
