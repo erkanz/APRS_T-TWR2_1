@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 main = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
+afsk = (ROOT / "lib/LibAPRS_ESP32S3/AFSK.cpp").read_text(encoding="utf-8")
 gui_h = (ROOT / "include/gui_lcd.h").read_text(encoding="utf-8")
 gui_cpp = (ROOT / "src/gui_lcd.cpp").read_text(encoding="utf-8")
 sensor = (ROOT / "src/sensor.cpp").read_text(encoding="utf-8")
@@ -47,6 +48,25 @@ expect("legacy standalone SSD1306 source excluded", "build_src_filter = +<*> -<A
 
 expect("sensor code does not restart system Wire", "Wire.begin(config.i2c_sda_pin, config.i2c_sck_pin, config.i2c_freq);" not in sensor)
 expect("sensor code restores 400kHz shared bus", "Wire.setClock(400000);" in sensor)
+
+expect("tracker per-second serial spam removed", 'TRACKER tx_counter=%d\\t INTERVAL=%d' not in main)
+expect("manual beacon helper exists", "void manualBeaconTx()" in main)
+expect("BOOT short press invokes manual beacon", '[MANUAL BEACON] BOOT short press' in main and "manualBeaconTx();" in main)
+manual_start = main.find("void manualBeaconTx()")
+manual_end = main.find("void burstAfterVoice()", manual_start if manual_start >= 0 else 0)
+manual_body = main[manual_start:manual_end] if manual_start >= 0 and manual_end > manual_start else ""
+expect("manual beacon forces RF queue", "pkgTxPush(rawData.c_str(), rawData.length(), 0, RF_CHANNEL)" in manual_body)
+expect("manual beacon independent of periodic tracker event", "EVENT_TX_POSITION" not in manual_body)
+expect("manual beacon does not pre-key audio mux", "digitalWrite(SA868_MIC_SEL" not in manual_body)
+expect("RF TX queue has concise diagnostic", "[APRS TX] RF queue" in main)
+
+expect("DAC timer has running-state guard", "static bool dacTimerRunning = false;" in afsk and "if (dacTimerRunning)" in afsk)
+expect("DAC timer start is guarded", "if (!dacTimerRunning)" in afsk and "dacTimerRunning = true;" in afsk)
+expect("DAC timer stop clears state", "timerStop(timer_dac);" in afsk and "dacTimerRunning = false;" in afsk)
+expect("circular setPtt TX wait removed", "while (hw_afsk_dac_isr == false)" not in afsk)
+
+expect("Last Heard retains invalid APRS frames", "AX.25 frame accepted but APRS payload invalid" in web)
+expect("Last Heard labels AX25-valid parser failures", "RF: AX.25 OK" in web and "INVALID APRS" in web)
 
 expect("only one taskSensor resume remains", main.count("vTaskResume(taskSensorHandle);") == 1)
 expect("Mode B sensor handle nulled after delete", "vTaskDelete(taskSensorHandle);\n                            taskSensorHandle = nullptr;" in main)
