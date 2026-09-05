@@ -33,13 +33,17 @@ def patch_main() -> None:
     else:
         print("SKIP  application TWDT reset calls already removed")
 
+    # Keep this migration patch idempotent.  A previous version searched for the
+    # inner log line first, so it re-wrapped an already guarded block on every CI
+    # run.  Full normalization is handled by rev21_full_compat.py.
     unsafe_charge_log = '  log_d("Setting Charge Target Current : %d", currTable[val]);\n'
     safe_charge_log = '''  if (val < (sizeof(currTable) / sizeof(currTable[0])))\n    log_d("Setting Charge Target Current : %d", currTable[val]);\n  else\n    log_w("Charge current enum %u is outside legacy display table", (unsigned)val);\n'''
-    if unsafe_charge_log in text:
+    safe_marker = 'Charge current enum %u is outside legacy display table'
+    if safe_marker in text:
+        print("SKIP  charge-current display table already guarded")
+    elif unsafe_charge_log in text:
         text = text.replace(unsafe_charge_log, safe_charge_log, 1)
         print("PATCH bound-check charge-current display table")
-    elif safe_charge_log in text:
-        print("SKIP  charge-current display table already guarded")
     else:
         raise RuntimeError("unexpected charge-current logging block")
 
