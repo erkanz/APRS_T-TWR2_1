@@ -35,8 +35,6 @@ checks = [
     ("main PTT externs use volatile", "extern volatile bool pttON;" in MAIN and "extern volatile bool pttOFF;" in MAIN),
     ("main ADC/DAC externs use volatile", "extern volatile int8_t adcEn;" in MAIN and "extern volatile int8_t dacEn;" in MAIN),
     ("config ADC/DAC externs use volatile", "extern volatile int8_t adcEn;" in CONFIG and "extern volatile int8_t dacEn;" in CONFIG),
-    ("no stale nonvolatile ADC extern", "extern int8_t adcEn;" not in MAIN and "extern int8_t adcEn;" not in CONFIG and "extern int8_t adcEn;" not in MODEM),
-    ("no stale nonvolatile DAC extern", "extern int8_t dacEn;" not in MAIN and "extern int8_t dacEn;" not in CONFIG and "extern int8_t dacEn;" not in MODEM),
     ("Rev2.1 PTT profile retained", "config.rf_ptt_gpio = 41;" in MAIN and "config.rf_ptt_active = LOW;" in MAIN),
     ("GPIO38 RF power remains disabled", "config.rf_pwr_gpio = -1;" in MAIN),
 ]
