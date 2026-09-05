@@ -23,9 +23,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release_dist
-          gh run download 33951336378 \
+          gh run download 33990710815 \
             --repo erkanz/APRS_T-TWR2_1 \
-            --name TWR-APRS-Rev21-FULL-COMPAT-f4a68dff8a2dedeac364771bb632ce2ec2975404 \
+            --name TWR-APRS-Rev21-FULL-COMPAT-eed1e73df6dc2bd312deae0565f4d232f55c34e9 \
             --dir release_dist
           ls -lah release_dist
 
@@ -35,160 +35,110 @@ jobs:
           set -euo pipefail
           cd release_dist
           sha256sum -c SHA256SUMS.txt
-          test "$(sha256sum TWR_APRS_Rev21_UPDATE.bin | awk '{print $1}')" = "70f2bd839ffb7f9ae730c508bd7fca540259556bbef0389e61a89ed02248855d"
-          test "$(sha256sum TWR_APRS_Rev21_FULL_INSTALL.bin | awk '{print $1}')" = "ec817994e28d89a4b944a14a95dab7a940a668b0342fe4b62ded6ec39c236e72"
+          test "$(sha256sum TWR_APRS_Rev21_UPDATE.bin | awk '{print $1}')" = "c3bbbdf92a551b2191bbcf51c983379dc236cf7f40def68371e8ab5f5c417e9f"
+          test "$(sha256sum TWR_APRS_Rev21_FULL_INSTALL.bin | awk '{print $1}')" = "60f52dff859f6ef0fc00f7389fc0abc3762e3438d38e609570d3737a506e81df"
 
       - name: Create release archive and notes
         shell: bash
         run: |
           set -euo pipefail
-          ARCHIVE="TWR_APRS_Rev21_NIGHTLY_2026-09-05.zip"
+          ARCHIVE="TWR_APRS_Rev21_NIGHTLY_2026-09-05_R2.zip"
           (cd release_dist && zip -9 -r "../$ARCHIVE" .)
           sha256sum "$ARCHIVE"
 
           cat > RELEASE_NOTES.md <<'EOF'
-          # LILYGO T-TWR Plus Rev2.1 — Nightly Build
+          # LILYGO T-TWR Plus Rev2.1 — Nightly Build R2
 
-          This is the first CI-verified **nightly / pre-release** for the Rev2.1 hardware port of APRS_T-TWR2_1.
+          This Nightly R2 incorporates fixes found during the first on-device Rev2.1 validation session.
 
-          **Verified firmware source:** `f4a68dff8a2dedeac364771bb632ce2ec2975404`  
-          **Verification workflow:** run `33951336378`  
-          **Target hardware:** LILYGO T-TWR Plus Rev2.1 / ESP32-S3 / SA868S / SH1106 128x64
+          **Verified generated-source input:** `eed1e73df6dc2bd312deae0565f4d232f55c34e9`  
+          **Verified committed firmware source:** `e8db9c8`  
+          **Verification workflow:** run `33990710815`  
+          **Target:** LILYGO T-TWR Plus Rev2.1 / ESP32-S3 / SA868S / SH1106 128x64
 
-          > This release is intentionally marked as a pre-release. The software, build, packaging, partition, and compatibility checks are green. Final on-device validation of the latest SH1106/shared-I2C changes is still required before calling it a hardware-validated stable release.
+          > **Nightly status:** development/test release. Compile, source invariants, binary/partition validation and packaging are green. Hardware validation is still in progress.
 
-          ## What changed
+          ## R2 fixes from physical testing
 
-          ### Rev2.1 hardware profile
-          - Forced the official Rev2.1 SA868S UART mapping: ESP TX GPIO39 / RX GPIO48.
-          - SQL moved to GPIO2 and is treated as active LOW.
-          - SA868S PD is GPIO40, active HIGH.
-          - PTT is GPIO41, active LOW.
-          - APRS RX ADC is GPIO1 and APRS TX audio is GPIO18.
-          - Audio routing control is GPIO17.
-          - Rev2.0-only RF power selector GPIO38 is disabled and is never driven on Rev2.1.
-          - I2C is fixed to SDA GPIO8 / SCL GPIO9 at 400 kHz.
+          - Removed the once-per-second `TRACKER tx_counter / INTERVAL` serial debug flood.
+          - Fixed manual APRS beacon behavior. A short BOOT-button press now builds the tracker position and queues it directly to the RF channel; it no longer depends on periodic tracker timing or `trk_loc2rf`.
+          - Added clear manual/TX diagnostics: `[MANUAL BEACON]` and `[APRS TX]`.
+          - Removed a circular TX-start wait that could add about one second before AFSK DAC transmission begins.
+          - Added explicit DAC GPTimer running-state tracking so idle/RX code does not call `timerStop()` on an already stopped timer (`gptimer_stop: timer is not running`).
+          - AX.25/FCS-valid frames whose APRS information field is malformed are no longer hidden from Last Heard. They are shown as `RF: AX.25 OK` / `INVALID APRS`.
+          - The APRS parser itself was not loosened: malformed coordinates remain invalid rather than being silently accepted.
 
-          ### SA868S / PTT / RF safety
-          - PTT now boots HIGH/idle and uses push-pull output on Rev2.1.
-          - TX drives PTT LOW; RX/idle restores it HIGH.
-          - Radio sleep, recovery, and deep-sleep paths explicitly restore safe PTT/audio state before asserting PD LOW.
-          - SA868S HIGH/LOW RF power semantics were corrected to the module's DMOSETGROUP format: HIGH=`0`, LOW=`1`.
+          ## Existing Rev2.1 hardware compatibility
 
-          ### PMU and Rev2.1 power domains
-          - Removed Rev2.0 assumptions about a PMU-controlled radio rail.
-          - DC3/DC5/ALDO1/ALDO3/BLDO2/DLDO1 are kept off when unused.
-          - SD, GNSS, and microphone rails are enabled as required.
-          - BLDO1 microphone rail is configured for 2.0 V.
-          - PMU startup diagnostics were reordered so a false pre-initialization "PMU offline" message is no longer emitted.
-          - Mode A/B wake rail handling was normalized for Rev2.1.
+          - SA868 UART TX39/RX48, SQL GPIO2 active LOW, PD GPIO40, PTT GPIO41 active LOW.
+          - APRS RX ADC GPIO1, TX audio GPIO18, audio routing GPIO17.
+          - Rev2.0-only GPIO38 RF selector disabled.
+          - Shared system I2C locked to GPIO8/9 @ 400 kHz.
+          - Native SH1106 128x64 path with Rev21 compatibility bitmap renderer.
+          - Rev2.1 PMU/power-domain normalization and safe radio sleep/recovery ordering.
+          - ESP32-S3 sleep/TWDT compatibility fixes.
+          - A/B OTA layout retained; serial update writes both app0 and app1.
 
-          ### SH1106 display and shared I2C bus
-          - Replaced the legacy SSD1306 display path with native Adafruit SH1106 support.
-          - Added a small `Rev21SH1106G` compatibility layer so the project's legacy vertical/LSB-first `drawYBitmap()` assets continue to render correctly.
-          - Removed the bundled legacy Adafruit GFX implementation from the active build.
-          - OLED initialization now reuses the already-initialized system `Wire` bus instead of starting I2C again.
-          - Sensor code no longer restarts the shared Wire bus and restores the bus to 400 kHz after sensor activity.
+          ## Verification
 
-          ### ESP32-S3 runtime / sleep compatibility
-          - Removed invalid zero-mask EXT1 wake configuration.
-          - Rev2.1 Mode C deep sleep uses the supported timer wake path.
-          - Application-level task-watchdog reinitialization/reset calls were removed; the framework manages TWDT.
-          - Charge-current and charge-voltage diagnostic lookup tables are bounds guarded.
-
-          ### Configuration safety
-          - Web configuration paths normalize Rev2.1 hardware pins before saving or reinitializing the RF module.
-          - Persistent settings cannot silently restore unsafe Rev2.0 RF GPIO assignments on Rev2.1.
-
-          ### Board, flash, PSRAM, and OTA profile
-          - Uses the official local `LilyGo-T-TWR-Plus` board definition.
-          - Configured for 16 MB flash, 80 MHz flash clock, QIO board profile, and OPI PSRAM (`qio_opi`).
-          - The pioarduino-generated ROM bootstrap image header remains DIO by design; this is expected while the board profile itself is QIO/OPI.
-          - Existing A/B OTA partition layout is retained.
-          - Serial update helper writes the same verified application to both `app0` and `app1`, avoiding stale-slot surprises after web OTA.
-
-          ## Verification status
-
-          The exact release payload passed:
-
-          - **74/74** Rev2.1 source/hardware invariants
-          - **51/51** deep compatibility invariants
-          - **31/31** packaged binary/partition invariants
-          - PlatformIO compile and link: **PASS**
-          - Firmware packaging: **PASS**
-          - ESP image checksum and validation hash: **PASS**
-          - Patch idempotence: **PASS**
-          - Committed-source reproducibility: **PASS**
+          - **74/74** Rev2.1 source/hardware invariants — PASS
+          - **64/64** deep compatibility invariants — PASS
+          - **31/31** packaged binary/partition invariants — PASS
+          - PlatformIO compile + link — PASS
+          - Firmware packaging — PASS
+          - Patch idempotence — PASS
 
           Build footprint:
-
           - RAM: 75,668 / 327,680 bytes — 23.1%
-          - Flash: 2,153,030 / 4,194,304 bytes — 51.3%
-          - Application image size: 2,153,856 bytes
+          - Flash: 2,154,538 / 4,194,304 bytes — 51.4%
+          - Application image: 2,155,360 bytes
 
-          Main payload hashes:
+          Main hashes:
+          - `TWR_APRS_Rev21_UPDATE.bin` — `c3bbbdf92a551b2191bbcf51c983379dc236cf7f40def68371e8ab5f5c417e9f`
+          - `TWR_APRS_Rev21_FULL_INSTALL.bin` — `60f52dff859f6ef0fc00f7389fc0abc3762e3438d38e609570d3737a506e81df`
 
-          - `TWR_APRS_Rev21_UPDATE.bin`  
-            SHA256 `70f2bd839ffb7f9ae730c508bd7fca540259556bbef0389e61a89ed02248855d`
-          - `TWR_APRS_Rev21_FULL_INSTALL.bin`  
-            SHA256 `ec817994e28d89a4b944a14a95dab7a940a668b0342fe4b62ded6ec39c236e72`
+          ## Flashing for an existing Rev2.1 Nightly installation
 
-          ## Flashing
-
-          ### First Rev2.1 profile migration — keep settings
-          Use this once when moving from an older/generic build to this verified Rev2.1 profile:
-
-          ```bat
-          FLASH_PROFILE_UPDATE_KEEP_SETTINGS.bat COM27
-          ```
-
-          Equivalent command:
-
-          ```bat
-          python -m esptool --chip esp32s3 --port COM27 --baud 921600 write_flash -z 0x0000 bootloader.bin 0x10000 TWR_APRS_Rev21_UPDATE.bin 0x410000 TWR_APRS_Rev21_UPDATE.bin
-          ```
-
-          Do **not** run `erase_flash` for this migration. It does not rewrite the partition table, OTA metadata, NVS, or LittleFS.
-
-          ### Later serial updates — keep settings
-
+          Preserve settings:
           ```bat
           FLASH_UPDATE_KEEP_SETTINGS.bat COM27
           ```
 
-          ### Web OTA
-          After the Rev2.1 profile migration, upload:
+          This writes the same verified application to both OTA slots (`0x10000` and `0x410000`) without erasing NVS or LittleFS.
 
+          Web OTA can use:
           `TWR_APRS_Rev21_UPDATE.bin`
 
-          ### Full clean install — erases settings
-
+          Full clean install (erases settings):
           ```bat
           FLASH_FULL_CLEAN_INSTALL.bat COM27
           ```
 
-          ## Included release assets
-          - Complete nightly ZIP with firmware, bootloader, partition image, checksums, instructions, and Windows flashing helpers.
-          - Raw `TWR_APRS_Rev21_UPDATE.bin` for OTA/update use.
-          - Merged `TWR_APRS_Rev21_FULL_INSTALL.bin` for clean installation.
-          - `SHA256SUMS.txt` for local verification.
+          ## Manual beacon test
+
+          After boot, briefly press and release BOOT. Expected serial markers:
+          ```text
+          [MANUAL BEACON] BOOT short press
+          [MANUAL BEACON] queued RF: ...
+          [APRS TX] RF queue len=...: ...
+          ```
+          There should no longer be a continuous `TRACKER tx_counter=... INTERVAL=...` line every second, and no repeated `gptimer_stop: timer is not running` errors during normal RX/idle operation.
           EOF
           sed -i 's/^          //' RELEASE_NOTES.md
 
-      - name: Publish GitHub nightly prerelease
+      - name: Publish GitHub Nightly R2
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="nightly-rev21-2026-09-05"
+          TAG="nightly-rev21-2026-09-05-r2"
           gh release create "$TAG" \
             --repo erkanz/APRS_T-TWR2_1 \
-            --target f4a68dff8a2dedeac364771bb632ce2ec2975404 \
-            --title "Nightly Build — LILYGO T-TWR Plus Rev2.1 — 2026-09-05" \
+            --target e8db9c8 \
+            --title "Nightly Build R2 — LILYGO T-TWR Plus Rev2.1 — 2026-09-05" \
             --notes-file RELEASE_NOTES.md \
-            --prerelease \
-            --latest=false \
-            TWR_APRS_Rev21_NIGHTLY_2026-09-05.zip \
+            --latest \
+            TWR_APRS_Rev21_NIGHTLY_2026-09-05_R2.zip \
             release_dist/TWR_APRS_Rev21_UPDATE.bin \
             release_dist/TWR_APRS_Rev21_FULL_INSTALL.bin \
             release_dist/SHA256SUMS.txt
