@@ -75,9 +75,10 @@ expect("no active zero-mask ext1", no_active(r"^\s*esp_sleep_enable_ext1_wakeup\
 expect("Mode C timer wake retained", "esp_sleep_enable_timer_wakeup((uint64_t)config.pwr_sleep_interval * uS_TO_S_FACTOR);" in m)
 expect("Mode C timer-only documented", "ESP32-S3 Rev2.1 Mode C is timer-wake only" in m)
 
-# I2C/OLED shared bus behavior.
-expect("OLED reuses initialized Wire bus", "display.begin(SSD1306_SWITCHCAPVCC, oled_addr, false, false);" in m)
-expect("legacy duplicate OLED Wire begin removed", "display.begin(SSD1306_SWITCHCAPVCC, oled_addr, false);" not in m)
+# Native Rev2.1 SH1106 OLED on the PMU-initialized shared I2C bus.
+expect("native Rev2.1 SH1106 OLED", "Adafruit_SH1106G display(" in m and "display.begin(oled_addr, false);" in m)
+expect("OLED shared bus stays 400kHz", "Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1, 400000, 400000);" in m)
+expect("legacy SSD1306 driver removed", '#include "Adafruit_SSD1306.h"' not in m and "display.begin(SSD1306_SWITCHCAPVCC" not in "\n".join(line for line in m.splitlines() if not line.lstrip().startswith("//")))
 
 # Runtime stability and diagnostics.
 expect("TWDT framework managed", "[REV2.1] TWDT framework-managed" in m)
@@ -95,6 +96,7 @@ expect("QIO OPI memory", "board_build.arduino.memory_type = qio_opi" in pio and 
 expect("16MB flash profile", '"flash_size": "16MB"' in board)
 expect("OTA partitions retained", "board_build.partitions = partitions.csv" in pio)
 expect("NeoPixel 1.12.3 pinned", "adafruit/Adafruit NeoPixel@1.12.3" in pio)
+expect("SH1106 dependency pinned", "adafruit/Adafruit SH110X@2.1.14" in pio)
 
 # Static library/default safety.
 expect("config TX39 RX48", "rf_tx_gpio = 39" in c and "rf_rx_gpio = 48" in c)
