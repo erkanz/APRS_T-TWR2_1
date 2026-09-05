@@ -83,23 +83,84 @@ jobs:
             0xe000 dist/boot_app0.bin \
             0x10000 dist/TWR_APRS_Rev21_UPDATE.bin
 
-          cat > dist/FLASH_INSTRUCTIONS.txt <<'EOF'
-          LILYGO T-TWR Plus Rev2.1
-          =========================
+          cat > dist/FLASH_PROFILE_UPDATE_KEEP_SETTINGS.bat <<'EOF'
+          @echo off
+          setlocal
+          set PORT=%~1
+          if "%PORT%"=="" set /p PORT=Enter COM port (example COM27): 
+          python -m esptool --chip esp32s3 --port %PORT% --baud 921600 write_flash -z 0x0000 bootloader.bin 0x10000 TWR_APRS_Rev21_UPDATE.bin
+          if errorlevel 1 exit /b %errorlevel%
+          echo.
+          echo Rev2.1 QIO/OPI profile update complete. Wi-Fi/callsign/settings were not erased.
+          endlocal
+          EOF
+          sed -i 's/^          //' dist/FLASH_PROFILE_UPDATE_KEEP_SETTINGS.bat
 
-          NORMAL UPDATE - PRESERVES Wi-Fi / CALLSIGN / SETTINGS
+          cat > dist/FLASH_APP_UPDATE_KEEP_SETTINGS.bat <<'EOF'
+          @echo off
+          setlocal
+          set PORT=%~1
+          if "%PORT%"=="" set /p PORT=Enter COM port (example COM27): 
+          python -m esptool --chip esp32s3 --port %PORT% --baud 921600 write_flash -z 0x10000 TWR_APRS_Rev21_UPDATE.bin
+          if errorlevel 1 exit /b %errorlevel%
+          echo.
+          echo Application update complete. Wi-Fi/callsign/settings were not erased.
+          endlocal
+          EOF
+          sed -i 's/^          //' dist/FLASH_APP_UPDATE_KEEP_SETTINGS.bat
+
+          cat > dist/FLASH_FULL_CLEAN_INSTALL.bat <<'EOF'
+          @echo off
+          setlocal
+          set PORT=%~1
+          if "%PORT%"=="" set /p PORT=Enter COM port (example COM27): 
+          python -m esptool --chip esp32s3 --port %PORT% erase_flash
+          if errorlevel 1 exit /b %errorlevel%
+          python -m esptool --chip esp32s3 --port %PORT% --baud 921600 write_flash -z 0x0000 TWR_APRS_Rev21_FULL_INSTALL.bin
+          if errorlevel 1 exit /b %errorlevel%
+          echo.
+          echo Full clean install complete. Device settings must be configured again.
+          endlocal
+          EOF
+          sed -i 's/^          //' dist/FLASH_FULL_CLEAN_INSTALL.bat
+
+          cat > dist/FLASH_INSTRUCTIONS.txt <<'EOF'
+          LILYGO T-TWR Plus Rev2.1 - FULL COMPATIBILITY BUILD
+          ===================================================
+
+          FIRST UPDATE FROM THE EARLIER DIO/GENERIC-BOARD BUILDS
+          ------------------------------------------------------
+          To adopt the official LilyGo-T-TWR-Plus QIO flash / OPI PSRAM profile
+          while preserving Wi-Fi, callsign and LittleFS/NVS configuration, write
+          ONLY the new bootloader and application. Do NOT erase flash and do NOT
+          rewrite the partition table:
+
+            python -m esptool --chip esp32s3 --port COMxx --baud 921600 write_flash -z 0x0000 bootloader.bin 0x10000 TWR_APRS_Rev21_UPDATE.bin
+
+          Windows helper:
+            FLASH_PROFILE_UPDATE_KEEP_SETTINGS.bat COM27
+
+          NORMAL FUTURE APP UPDATE - PRESERVES SETTINGS
+          ------------------------------------------------------
             File:   TWR_APRS_Rev21_UPDATE.bin
             Offset: 0x10000
             Do NOT run erase_flash.
 
             python -m esptool --chip esp32s3 --port COMxx --baud 921600 write_flash -z 0x10000 TWR_APRS_Rev21_UPDATE.bin
 
-          CLEAN/FULL INSTALL - ERASES/REPLACES BOOT + PARTITION + APPLICATION IMAGE
+          Windows helper:
+            FLASH_APP_UPDATE_KEEP_SETTINGS.bat COM27
+
+          CLEAN/FULL INSTALL - ERASES SETTINGS
+          ------------------------------------------------------
             File:   TWR_APRS_Rev21_FULL_INSTALL.bin
             Offset: 0x0000
 
             python -m esptool --chip esp32s3 --port COMxx erase_flash
             python -m esptool --chip esp32s3 --port COMxx --baud 921600 write_flash -z 0x0000 TWR_APRS_Rev21_FULL_INSTALL.bin
+
+          Windows helper:
+            FLASH_FULL_CLEAN_INSTALL.bat COM27
           EOF
           sed -i 's/^          //' dist/FLASH_INSTRUCTIONS.txt
 
@@ -109,8 +170,9 @@ jobs:
             echo "Environment: esp32s3-twrplus"
             echo "Hardware: LILYGO T-TWR Plus Rev2.1"
             echo "Board profile: LilyGo-T-TWR-Plus (QIO flash / OPI PSRAM)"
-            echo "UPDATE image offset: 0x10000 (preserves settings; no erase)"
-            echo "FULL_INSTALL image offset: 0x0000 (clean install)"
+            echo "Profile migration preserving settings: bootloader@0x0000 + UPDATE@0x10000, no erase"
+            echo "Future UPDATE image offset: 0x10000, no erase"
+            echo "FULL_INSTALL image offset: 0x0000 after erase"
             echo
             ls -lh dist/*.bin
           } > dist/BUILD_INFO.txt
