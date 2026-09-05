@@ -239,6 +239,24 @@ static void enforceRev21RadioHardwareProfile()
 def patch_platformio() -> None:
     text = PIO.read_text(encoding="utf-8")
     text = replace_once(text, 'adafruit/Adafruit SSD1306@^2.5.7', 'adafruit/Adafruit SH110X@2.1.14', "SH1106 PlatformIO dependency")
+
+    # The repository contains a bundled Adafruit_GFX 1.5.6 used by the legacy
+    # SSD1306 path. SH110X requires the current Adafruit GFX/GrayOLED stack, so
+    # compiling both copies creates duplicate symbols at link time. The bundled
+    # copy is renamed "Legacy Adafruit GFX Library" in its library.properties and
+    # is explicitly ignored by the Rev2.1 environment.
+    if 'lib_ignore = Legacy Adafruit GFX Library\n' not in text:
+        anchor = 'monitor_filters = esp32_exception_decoder\n'
+        if anchor not in text:
+            raise SystemExit("ERROR: platformio lib_ignore insertion anchor missing")
+        text = text.replace(anchor, anchor + 'lib_ignore = Legacy Adafruit GFX Library\n', 1)
+
+    # The old standalone SSD1306 implementation lives in src/, so LDF cannot
+    # ignore it. Exclude it explicitly now that all active display code is SH1106.
+    if 'build_src_filter = +<*> -<Adafruit_SSD1306.cpp>\n' not in text:
+        anchor = 'lib_ignore = Legacy Adafruit GFX Library\n'
+        text = text.replace(anchor, anchor + 'build_src_filter = +<*> -<Adafruit_SSD1306.cpp>\n', 1)
+
     PIO.write_text(text, encoding="utf-8")
 
 
