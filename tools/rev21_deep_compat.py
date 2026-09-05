@@ -102,25 +102,20 @@ def patch_gui_header() -> None:
 def patch_gui_cpp() -> None:
     text = GUI_CPP.read_text(encoding="utf-8")
 
-    # Adafruit_SH1106G inherits setContrast()/oled_command() from Adafruit_GrayOLED
-    # but has no SSD1306-specific dim()/ssd1306_command() methods.
+    # Adafruit_SH1106G inherits these generic APIs from Adafruit_GrayOLED.
     text = text.replace('display.dim(true);', 'display.setContrast(0x00);')
     text = text.replace('display.dim(false);', 'display.setContrast(0xFF);')
-
-    contrast_pair = 'display.ssd1306_command(SSD1306_SETCONTRAST);\n                        display.ssd1306_command(config.contrast);'
-    contrast_new = 'display.setContrast((uint8_t)config.contrast);'
-    text = text.replace(contrast_pair, contrast_new)
-
-    # Preserve the legacy raw OLED command behavior through the generic SH110X API.
+    text = text.replace('display.ssd1306_command(SSD1306_SETCONTRAST);', 'display.setContrast((uint8_t)config.contrast);')
+    text = text.replace('display.ssd1306_command(config.contrast);', '')
     text = text.replace('display.ssd1306_command(0xE4);', 'display.oled_command(0xE4);')
 
-    # Active SSD1306-only calls must be completely gone. Commented historical
-    # references are harmless, but remove them too to prevent future confusion.
+    # Remove stale commented SSD1306 command examples as well.
     text = text.replace('// display.ssd1306_command(SSD1306_SETPRECHARGE);                  // 0xd9', '// SH1106 contrast is handled with display.setContrast()')
-    text = text.replace('// display.ssd1306_command(config.contrast);', '')
     text = text.replace('// display.ssd1306_command(SSD1306_SETVCOMDETECT);                 // 0xDB', '')
 
-    if 'display.dim(' in text or 'display.ssd1306_command(' in text or 'SSD1306_SETCONTRAST' in text:
+    active_lines = [line for line in text.splitlines() if not line.lstrip().startswith('//')]
+    active = '\n'.join(active_lines)
+    if 'display.dim(' in active or 'display.ssd1306_command(' in active or 'SSD1306_SETCONTRAST' in active:
         raise SystemExit("ERROR: active SSD1306-only GUI API remains after SH1106 migration")
 
     GUI_CPP.write_text(text, encoding="utf-8")
