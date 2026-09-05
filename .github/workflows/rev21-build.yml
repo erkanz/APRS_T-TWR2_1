@@ -50,6 +50,9 @@ jobs:
       - name: Apply ESP32-S3 sleep compatibility fix
         run: python tools/rev21_sleep_compat.py
 
+      - name: Apply Rev2.1 OLED shared-I2C compatibility fix
+        run: python tools/rev21_display_i2c_compat.py
+
       - name: Verify Rev2.1 source invariants
         run: python tools/verify_rev21_port.py
 
