@@ -7,6 +7,7 @@ AFSK_H = ROOT / "lib/LibAPRS_ESP32S3/AFSK.h"
 MODEM = ROOT / "lib/LibAPRS_ESP32S3/modem.cpp"
 MAIN = ROOT / "src/main.cpp"
 CONFIG = ROOT / "src/config.cpp"
+WEB = ROOT / "src/webservice.cpp"
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
@@ -277,13 +278,13 @@ def patch_main() -> None:
     MAIN.write_text(text, encoding="utf-8")
 
 
-def patch_config() -> None:
-    text = CONFIG.read_text(encoding="utf-8")
+def patch_transition_externs(path: Path, label: str) -> None:
+    text = path.read_text(encoding="utf-8")
     text = replace_once(text,
         "extern int8_t adcEn;\nextern int8_t dacEn;",
         "extern volatile int8_t adcEn;\nextern volatile int8_t dacEn;",
-        "volatile config ADC/DAC transition externs")
-    CONFIG.write_text(text, encoding="utf-8")
+        label)
+    path.write_text(text, encoding="utf-8")
 
 
 def main() -> None:
@@ -291,7 +292,8 @@ def main() -> None:
     patch_afsk_header()
     patch_modem()
     patch_main()
-    patch_config()
+    patch_transition_externs(CONFIG, "volatile config ADC/DAC transition externs")
+    patch_transition_externs(WEB, "volatile web ADC/DAC transition externs")
     print("Applied Rev2.1 physical RF validation fixes.")
 
 
