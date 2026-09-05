@@ -1,0 +1,141 @@
+name: T-TWR Rev2.1 RF Validation Fix
+
+on:
+  push:
+    branches:
+      - rev21-hardware-port
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rev21-rf-validation
+  cancel-in-progress: false
+
+jobs:
+  patch-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply existing Rev2.1 compatibility passes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! grep -q "static void applyTwrRev21HardwareProfile()" src/main.cpp; then
+            python tools/rev21_port.py
+          fi
+          python tools/repair_rev21_afsk_macros.py
+          python tools/rev21_runtime_fixes.py
+          python tools/rev21_full_compat.py
+          python tools/rev21_radio_safety.py
+          python tools/rev21_sleep_compat.py
+          python tools/rev21_display_i2c_compat.py
+          python tools/rev21_deep_compat.py
+
+      - name: Apply physical RF validation fixes
+        run: python tools/rev21_hw_validation_fixes.py
+
+      - name: Verify all Rev2.1 invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/verify_rev21_port.py
+          python tools/verify_rev21_deep_compat.py
+          python tools/verify_rev21_hw_validation.py
+          git diff --check
+
+      - name: Verify RF-validation patch is idempotent
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILES="src/main.cpp lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/LibAPRS_ESP32S3/modem.cpp"
+          BEFORE="$(sha256sum $FILES | sha256sum | awk '{print $1}')"
+          python tools/rev21_hw_validation_fixes.py
+          AFTER="$(sha256sum $FILES | sha256sum | awk '{print $1}')"
+          test "$BEFORE" = "$AFTER"
+          echo "PASS Rev2.1 RF-validation patch is idempotent"
+
+      - name: Detect source patch
+        id: patch_state
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/main.cpp lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/LibAPRS_ESP32S3/modem.cpp; then
+            echo "dirty=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "dirty=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install PlatformIO and esptool
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install platformio esptool
+
+      - name: PlatformIO build
+        run: pio run -e esp32s3-twrplus
+
+      - name: Package RF-validation firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          ENV_DIR=.pio/build/esp32s3-twrplus
+          mkdir -p dist
+          cp "$ENV_DIR/firmware.bin" dist/TWR_APRS_Rev21_UPDATE.bin
+          cp "$ENV_DIR/bootloader.bin" dist/bootloader.bin
+          cp "$ENV_DIR/partitions.bin" dist/partitions.bin
+          BOOT_APP="$(find "$HOME/.platformio" -type f -name boot_app0.bin | head -n 1 || true)"
+          test -n "$BOOT_APP"
+          cp "$BOOT_APP" dist/boot_app0.bin
+          python -m esptool --chip esp32s3 merge-bin \
+            -o dist/TWR_APRS_Rev21_FULL_INSTALL.bin \
+            0x0000 dist/bootloader.bin \
+            0x8000 dist/partitions.bin \
+            0xe000 dist/boot_app0.bin \
+            0x10000 dist/TWR_APRS_Rev21_UPDATE.bin
+          (cd dist && sha256sum *.bin > SHA256SUMS.txt)
+          {
+            echo "Repository: $GITHUB_REPOSITORY"
+            echo "Source commit: $GITHUB_SHA"
+            echo "Branch: $GITHUB_REF_NAME"
+            echo "Hardware: LILYGO T-TWR Plus Rev2.1"
+            echo "Validation status: STATIC/CI ONLY - PHYSICAL RF VALIDATION PENDING"
+            echo
+            echo "Changes:"
+            echo "- Disable GPIO42 NeoPixel/RMT during RF validation"
+            echo "- Stop ADC DMA enqueue while AFSK TX is active"
+            echo "- Bound and flush RX FIFO across TX-to-RX transition"
+            echo "- Defer TX-stop GPIO/ADC work from timer ISR to task context"
+            echo "- Add event-only PTT41/MUX17 TX START/STOP diagnostics"
+            echo "- Remove per-second tracker counter serial spam"
+          } > dist/BUILD_INFO.txt
+
+      - name: Upload validation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TWR-APRS-Rev21-RF-Validation-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit verified source patch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/rev21-hardware-port' && steps.patch_state.outputs.dirty == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.cpp lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/LibAPRS_ESP32S3/modem.cpp
+          git commit -m "Apply Rev2.1 physical RF validation fixes"
+          git push origin HEAD:rev21-hardware-port
