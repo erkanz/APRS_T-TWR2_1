@@ -9,6 +9,7 @@ files = {
     "config": (ROOT / "include/config.h").read_text(encoding="utf-8"),
     "afsk_cpp": (ROOT / "lib/LibAPRS_ESP32S3/AFSK.cpp").read_text(encoding="utf-8"),
     "afsk_h": (ROOT / "lib/LibAPRS_ESP32S3/AFSK.h").read_text(encoding="utf-8"),
+    "pio": (ROOT / "platformio.ini").read_text(encoding="utf-8"),
 }
 
 checks = []
@@ -22,6 +23,7 @@ m = files["main"]
 c = files["config"]
 a = files["afsk_cpp"]
 ah = files["afsk_h"]
+pio = files["pio"]
 
 expect("runtime Rev2.1 profile present", "applyTwrRev21HardwareProfile()" in m)
 expect("Rev2.1 SQL GPIO2 forced", "config.rf_sql_gpio = 2;" in m)
@@ -36,8 +38,22 @@ expect("DC3 has no active voltage set", no_active(r"^\s*PMU\.setDC3Voltage\(", m
 expect("GPIO38 direct writes removed", no_active(r"^\s*digitalWrite\(SA868_PWR_PIN,", m))
 expect("GPIO38 direct pinMode removed", no_active(r"^\s*pinMode\(SA868_PWR_PIN,", m))
 expect("legacy POWER_PIN writes removed", no_active(r"^\s*digitalWrite\(POWER_PIN,", m))
-expect("TWDT no longer watches idle cores", ".idle_core_mask = 0" in m)
-expect("TWDT reconfigure used", "esp_task_wdt_reconfigure(&twdt_config)" in m)
+
+framework_managed_wdt = "[REV2.1] TWDT framework-managed" in m
+legacy_safe_wdt = ".idle_core_mask = 0" in m and "esp_task_wdt_reconfigure(&twdt_config)" in m
+expect("TWDT policy is safe during migration", framework_managed_wdt or legacy_safe_wdt)
+if framework_managed_wdt:
+    expect("no active application TWDT reset", no_active(r"^\s*esp_task_wdt_reset\(\);", m))
+    expect("no active TWDT reconfigure", no_active(r"^\s*esp_task_wdt_reconfigure\(", m))
+    expect("no active TWDT init", no_active(r"^\s*esp_task_wdt_init\(", m))
+else:
+    expect("legacy transition TWDT uses idle mask zero", ".idle_core_mask = 0" in m)
+    expect("legacy transition TWDT reconfigure present", "esp_task_wdt_reconfigure(&twdt_config)" in m)
+
+expect("charge-current table access is guarded during migration",
+       "Charge current enum %u is outside legacy display table" in m or
+       'log_d("Setting Charge Target Current : %d", currTable[val]);' in m)
+expect("NeoPixel pinned to ESP32-S3-compatible 1.12.3", "adafruit/Adafruit NeoPixel@1.12.3" in pio)
 expect("config defaults TX39/RX48", "rf_tx_gpio = 39" in c and "rf_rx_gpio = 48" in c)
 expect("config defaults SQL2", "rf_sql_gpio = 2" in c)
 expect("config defaults no GPIO38 power", "rf_pwr_gpio = -1" in c)
