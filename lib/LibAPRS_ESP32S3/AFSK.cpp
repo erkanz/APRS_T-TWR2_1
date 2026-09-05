@@ -47,7 +47,7 @@ extern unsigned long custom_tail;
 int adcVal;
 
 int8_t _sql_pin = -1, _ptt_pin = 41, _pwr_pin = -1, _dac_pin = 18, _adc_pin = 1;
-bool _sql_active, _ptt_active = HIGH, _pwr_active;
+bool _sql_active, _ptt_active = LOW, _pwr_active; // Rev2.1 SA868 PTT active LOW
 
 uint8_t adc_atten;
 

@@ -174,6 +174,7 @@ static void applyTwrRev21HardwareProfile()
   config.rf_sql_active = LOW;
   config.rf_pd_active = HIGH;
   config.rf_pwr_active = LOW;
+  config.rf_ptt_active = LOW; // Rev2.1 SA868 PTT: LOW=TX, HIGH=RX/idle
   config.adc_gpio = 1;         // SA868 audio -> ESP32 ADC
   config.dac_gpio = 18;        // ESP32 AFSK -> SA868 audio
   config.adc_sel_gpio = -1;
@@ -1380,7 +1381,7 @@ void defaultConfig()
   config.rf_sql_active = 0;
   config.rf_pd_active = 1;
   config.rf_pwr_active = 1;
-  config.rf_ptt_active = 1;
+  config.rf_ptt_active = 0; // Rev2.1 SA868 PTT is active LOW
   config.adc_atten = 4;
   config.adc_dc_offset = 600;
   config.rf_baudrate = 9600;
@@ -3270,7 +3271,10 @@ void setupPower()
   log_d("Val = %d", val);
   if (val < (sizeof(currTable) / sizeof(currTable[0])))
     if (val < (sizeof(currTable) / sizeof(currTable[0])))
+    if (val < (sizeof(currTable) / sizeof(currTable[0])))
     log_d("Setting Charge Target Current : %d", currTable[val]);
+  else
+    log_w("Charge current enum %u is outside legacy display table", (unsigned)val);
   else
     log_w("Charge current enum %u is outside legacy display table", (unsigned)val);
   else
