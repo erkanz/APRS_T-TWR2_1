@@ -146,6 +146,43 @@ String trk_fix_position(String comment, bool forceUncompressed = false);
     elif "rawData = trk_fix_position(cmn, false);" not in main_text[manual_end:]:
         raise SystemExit("ERROR: periodic fixed tracker call not found")
 
+    # Rev2.1 voice PTT is GPIO41 active LOW. The legacy loop asserted GPIO41 LOW
+    # on button press but never drove it HIGH again on button release for the
+    # normal NiceRF SA868 path. AT TxOff/RxOn only runs for OpenEdit and therefore
+    # cannot release the physical PTT line on normal SA868 firmware.
+    voice_old = '''    LED_Status(0, 0, 0);
+    AFSKInitAct = true;
+    if (config.rf_type == RF_SA8x8_OpenEdit)
+'''
+    voice_new = '''    LED_Status(0, 0, 0);
+    digitalWrite(SA868_PTT_PIN, HIGH); // Rev2.1 voice PTT release: HIGH=RX/idle
+    digitalWrite(SA868_MIC_SEL, LOW);  // restore normal microphone/radio route
+    log_i("[VOICE PTT] RELEASE PTT41=HIGH RX");
+    AFSKInitAct = true;
+    if (config.rf_type == RF_SA8x8_OpenEdit)
+'''
+    if voice_new not in main_text:
+        if main_text.count(voice_old) != 1:
+            raise SystemExit(f"ERROR: expected one voice PTT release anchor, found {main_text.count(voice_old)}")
+        main_text = main_text.replace(voice_old, voice_new, 1)
+
+    voice_start = main_text.find("// PTT push to FM Voice")
+    voice_end = main_text.find("if (digitalRead(BOOT_PIN) == LOW)", voice_start)
+    if voice_start < 0 or voice_end < 0:
+        raise SystemExit("ERROR: voice PTT block not found")
+    voice_block = main_text[voice_start:voice_end]
+    required_voice = [
+        "digitalWrite(SA868_PTT_PIN, LOW); // PTT RF",
+        "while (digitalRead(BUTTON_PTT_PIN) == LOW)",
+        "digitalWrite(SA868_PTT_PIN, HIGH); // Rev2.1 voice PTT release: HIGH=RX/idle",
+        "[VOICE PTT] RELEASE PTT41=HIGH RX",
+    ]
+    for item in required_voice:
+        if item not in voice_block:
+            raise SystemExit(f"ERROR: voice PTT invariant missing: {item}")
+    if voice_block.find("digitalWrite(SA868_PTT_PIN, HIGH)") < voice_block.find("while (digitalRead(BUTTON_PTT_PIN) == LOW)"):
+        raise SystemExit("ERROR: voice PTT release occurs before button-release wait")
+
     if "TRACKER tx_counter=" in main_text:
         raise SystemExit("ERROR: tracker counter serial spam survived final main patch")
     if local_prototypes_true in main_text or local_prototypes_false in main_text:
@@ -245,6 +282,7 @@ def main() -> None:
     print(f"PASS tracker tx_counter serial diagnostics removed: {removed} line(s)")
     print("PASS manual beacon defaults to uncompressed APRS; periodic tracker preserves configured mode")
     print("PASS malformed minute-hundredths APRS compatibility normalization installed")
+    print("PASS voice PTT release drives GPIO41 HIGH/RX")
 
 
 if __name__ == "__main__":
