@@ -178,10 +178,22 @@ static void applyTwrRev21HardwareProfile()
   config.adc_gpio = 1;         // SA868 audio -> ESP32 ADC
   config.dac_gpio = 18;        // ESP32 AFSK -> SA868 audio
   config.adc_sel_gpio = -1;
-  config.dac_sel_gpio = 17;    // audio mux
+  config.dac_sel_gpio = 17;    // Rev2.1 microphone/audio routing switch
+  config.i2c_enable = true;
+  config.i2c_sda_pin = 8;
+  config.i2c_sck_pin = 9;
+  config.i2c_freq = 400000;
 }
 
-// Rev2.1 has no GPIO-controlled RF-power rail.  GPIO38 belongs to Rev2.0.
+// Rev2.1 has no GPIO38 H/L selector.  SA868S NiceRF firmware uses
+// DMOSETGROUP parameter 0=HIGH, 1=LOW for TX power.  The legacy helper stays
+// a no-op because changing power is applied atomically when RF_MODULE()
+// reprograms the radio (web radio changes set RF_INIT=true).
+static inline uint8_t rev21Sa868PowerBit(bool highPower)
+{
+  return highPower ? 0 : 1;
+}
+
 static inline void rev21SetRfPower(bool highPower)
 {
   (void)highPower;
@@ -2763,7 +2775,8 @@ void RF_MODULE(bool boot)
     digitalWrite(SA868_PD_PIN, LOW); // PWR OFF
     setupPowerRF(false);
 
-    digitalWrite(SA868_PTT_PIN,LOW);
+    pinMode(SA868_PTT_PIN, OUTPUT);
+    digitalWrite(SA868_PTT_PIN, HIGH); // Rev2.1 idle/RX; PTT is active LOW
     
     // pinMode(config.rf_tx_gpio,OUTPUT);
     // pinMode(config.rf_rx_gpio,OUTPUT);
@@ -2845,7 +2858,7 @@ void RF_MODULE(bool boot)
       SerialRF.printf("AT+DMOCONNECT\r\n");
       if (SA868_waitResponse(data, rsp, 1000))
         log_d("%s", data.c_str());
-      sprintf(str, "AT+DMOSETGROUP=%01d,%0.4f,%0.4f,%04d,%01d,%04d\r\n", config.band, config.freq_tx, config.freq_rx, config.tone_tx, config.sql_level, config.tone_rx);
+      sprintf(str, "AT+DMOSETGROUP=%01d,%0.4f,%0.4f,%04d,%01d,%04d\r\n", rev21Sa868PowerBit(config.rf_power), config.freq_tx, config.freq_rx, config.tone_tx, config.sql_level, config.tone_rx);
       SerialRF.print(str);
       log_d("Write to SA868: %s", str);
       if (SA868_waitResponse(data, rsp, 2000))
@@ -3063,14 +3076,17 @@ void setupPower()
   int c = 0;
   while (result == false)
   {
-    log_d("PMU is not online...");
-    delay(500);
     result = PMU.begin(Wire, AXP2101_SLAVE_ADDRESS, I2C_SDA_SYS, I2C_SCL_SYS);
     if (result)
       break;
     c++;
+    log_w("PMU init failed, retry %d/10", c);
     if (c > 10)
+    {
+      log_e("PMU initialization failed");
       return;
+    }
+    delay(500);
   }
 
   // Set the minimum common working voltage of the PMU VBUS input,
@@ -3126,11 +3142,13 @@ void setupPower()
   //! DC1 ESP32S3 Core VDD , Don't change
   // PMU.enableDC3();
 
-  //! External pin power supply
-  PMU.enableDC5();
-  PMU.enableALDO1();
-  PMU.enableALDO3();
-  PMU.enableBLDO2();
+  //! Rev2.1 idle power-domain state follows LilyGO TWRClass::beginPower/begin.
+  PMU.disableDC3();   // Rev2.1 unused; radio is battery-fed and controlled by PD GPIO40
+  PMU.disableDC5();   // user rail, unused by base APRS firmware
+  PMU.disableALDO1(); // user rail, unused by base APRS firmware
+  PMU.disableALDO3(); // LOW selects Radio -> onboard audio amplifier on Rev2.1
+  PMU.disableBLDO2(); // user rail, unused by base APRS firmware
+  PMU.disableDLDO1(); // downloader routing switch disabled in normal operation
 
   //! ALDO2 MICRO TF Card VDD
   PMU.enableALDO2();
@@ -3141,13 +3159,10 @@ void setupPower()
   //! BLDO1 MIC VDD
   PMU.enableBLDO1();
 
-  //! DC3 Radio & Pixels VDD
-  // Rev2.1: DC3 unused; keep disabled.
-  // power off when not in use
+  // power off unavailable/unused channels
   PMU.disableDC2();
   PMU.disableDC4();
   PMU.disableCPUSLDO();
-  PMU.disableDLDO1();
   PMU.disableDLDO2();
 
   log_d("DCDC=======================================================================");
@@ -3270,13 +3285,7 @@ void setupPower()
   uint8_t val = PMU.getChargerConstantCurr();
   log_d("Val = %d", val);
   if (val < (sizeof(currTable) / sizeof(currTable[0])))
-    if (val < (sizeof(currTable) / sizeof(currTable[0])))
-    if (val < (sizeof(currTable) / sizeof(currTable[0])))
     log_d("Setting Charge Target Current : %d", currTable[val]);
-  else
-    log_w("Charge current enum %u is outside legacy display table", (unsigned)val);
-  else
-    log_w("Charge current enum %u is outside legacy display table", (unsigned)val);
   else
     log_w("Charge current enum %u is outside legacy display table", (unsigned)val);
 
@@ -3284,7 +3293,10 @@ void setupPower()
   const uint16_t tableVoltage[] = {
       0, 4000, 4100, 4200, 4350, 4400, 255};
   val = PMU.getChargeTargetVoltage();
-  log_d("Setting Charge Target Voltage : %d", tableVoltage[val]);
+  if (val < (sizeof(tableVoltage) / sizeof(tableVoltage[0])))
+    log_d("Setting Charge Target Voltage : %d", tableVoltage[val]);
+  else
+    log_w("Charge voltage enum %u is outside legacy display table", (unsigned)val);
 }
 
 void setupSDCard()
@@ -3432,10 +3444,10 @@ void setup()
   SerialRF.begin(config.rf_baudrate,SERIAL_8N1,config.rf_rx_gpio,config.rf_tx_gpio);
 
   config.i2c_enable = true;
-  Wire.begin(config.i2c_sda_pin, config.i2c_sck_pin, config.i2c_freq);
 
-  // Setup Power PMU AXP2101
+  // Setup Power PMU AXP2101. PMU.begin() initializes Wire on Rev2.1 pins.
   setupPower();
+  Wire.setClock(config.i2c_freq);
   //delay(500);
   // setupSDCard();
   //strip = new Adafruit_NeoPixel(1, PIXELS_PIN, NEO_GRB + NEO_KHZ800);
