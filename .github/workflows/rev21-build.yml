@@ -56,22 +56,35 @@ jobs:
       - name: Apply Rev2.1 deep compatibility pass
         run: python tools/rev21_deep_compat.py
 
+      - name: Apply Rev2.1 physical RF validation fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/rev21_hw_validation_fixes.py
+          python tools/rev21_modem_late_extern_fix.py
+
       - name: Verify Rev2.1 source invariants
         run: python tools/verify_rev21_port.py
 
       - name: Verify Rev2.1 deep compatibility invariants
         run: python tools/verify_rev21_deep_compat.py
 
+      - name: Verify Rev2.1 RF-validation invariants
+        run: python tools/verify_rev21_hw_validation.py
+
       - name: Verify patch pass is idempotent
         shell: bash
         run: |
           set -euo pipefail
           git diff --check
-          BEFORE="$(git diff -- src/main.cpp include/gui_lcd.h src/gui_lcd.cpp src/sensor.cpp src/webservice.cpp platformio.ini | sha256sum | awk '{print $1}')"
+          FILES="src/main.cpp src/config.cpp src/webservice.cpp include/gui_lcd.h src/gui_lcd.cpp src/sensor.cpp platformio.ini lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/LibAPRS_ESP32S3/modem.cpp"
+          BEFORE="$(sha256sum $FILES | sha256sum | awk '{print $1}')"
           python tools/rev21_deep_compat.py
-          AFTER="$(git diff -- src/main.cpp include/gui_lcd.h src/gui_lcd.cpp src/sensor.cpp src/webservice.cpp platformio.ini | sha256sum | awk '{print $1}')"
+          python tools/rev21_hw_validation_fixes.py
+          python tools/rev21_modem_late_extern_fix.py
+          AFTER="$(sha256sum $FILES | sha256sum | awk '{print $1}')"
           test "$BEFORE" = "$AFTER"
-          echo "PASS Rev2.1 deep patch is idempotent"
+          echo "PASS Rev2.1 deep/RF patch set is idempotent"
 
       - name: Install PlatformIO and esptool
         run: |
@@ -216,10 +229,24 @@ jobs:
             echo "FIRST PROFILE UPDATE: bootloader 0x0000 + app0 0x10000 + app1 0x410000, no erase"
             echo "NORMAL SERIAL UPDATE: app0 0x10000 + app1 0x410000, no erase"
             echo "FULL_INSTALL image offset: 0x0000 after erase"
+            echo "RF validation: GPIO42 NeoPixel disabled; TX/RX transition recovery hardened"
             echo
             ls -lh dist/*.bin
           } > dist/BUILD_INFO.txt
           (cd dist && sha256sum *.bin > SHA256SUMS.txt)
+          rm -f dist/TWR_APRS_Rev21_NIGHTLY_2026-09-05.zip
+          zip -j dist/TWR_APRS_Rev21_NIGHTLY_2026-09-05.zip \
+            dist/TWR_APRS_Rev21_UPDATE.bin \
+            dist/TWR_APRS_Rev21_FULL_INSTALL.bin \
+            dist/bootloader.bin \
+            dist/partitions.bin \
+            dist/boot_app0.bin \
+            dist/FLASH_PROFILE_UPDATE_KEEP_SETTINGS.bat \
+            dist/FLASH_UPDATE_KEEP_SETTINGS.bat \
+            dist/FLASH_FULL_CLEAN_INSTALL.bat \
+            dist/FLASH_INSTRUCTIONS.txt \
+            dist/BUILD_INFO.txt \
+            dist/SHA256SUMS.txt
           cat dist/BUILD_INFO.txt
           cat dist/SHA256SUMS.txt
 
@@ -246,7 +273,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main.cpp include/gui_lcd.h src/gui_lcd.cpp src/sensor.cpp src/webservice.cpp include/main.h include/config.h include/rev21_sh1106_compat.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/Adafruit_GFX/library.properties platformio.ini boards/LilyGo-T-TWR-Plus.json
+          git add src/main.cpp src/config.cpp include/gui_lcd.h src/gui_lcd.cpp src/sensor.cpp src/webservice.cpp include/main.h include/config.h include/rev21_sh1106_compat.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/LibAPRS_ESP32S3/modem.cpp lib/Adafruit_GFX/library.properties platformio.ini boards/LilyGo-T-TWR-Plus.json
           if git diff --cached --quiet; then
             echo "PASS no generated source changes; committed source is reproducible."
           else
@@ -256,6 +283,88 @@ jobs:
               echo "A newer workflow run will verify and commit the current branch state."
               exit 0
             fi
-            git commit -m "Apply verified T-TWR Rev2.1 deep compatibility fixes"
+            git commit -m "Apply verified T-TWR Rev2.1 RF compatibility fixes"
             git push origin HEAD:rev21-hardware-port
           fi
+
+      - name: Refresh Nightly GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/rev21-hardware-port'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="nightly-rev21-2026-09-05"
+          RELEASE_ID="383216847"
+          LOCAL_HEAD="$(git rev-parse HEAD)"
+          REMOTE_HEAD="$(git ls-remote origin refs/heads/rev21-hardware-port | awk '{print $1}')"
+          if [ "$LOCAL_HEAD" != "$REMOTE_HEAD" ]; then
+            echo "SKIP release refresh: branch advanced to $REMOTE_HEAD; newer run will publish it."
+            exit 0
+          fi
+          SOURCE_SHA="$LOCAL_HEAD"
+
+          cat > dist/RELEASE_NOTES.md <<EOF
+          # LILYGO T-TWR Plus Rev2.1 — Nightly RF Validation Build
+
+          **Verified build commit:** \`${SOURCE_SHA}\`  
+          **CI workflow run:** \`${GITHUB_RUN_ID}\`  
+          **Target hardware:** LILYGO T-TWR Plus Rev2.1 / ESP32-S3 / SA868S / SH1106 128x64
+
+          > **Nightly status:** Source, compatibility, binary and compile/link verification are green. Physical on-device RF validation is still required before promotion to stable.
+
+          ## RF validation fixes in this refresh
+          - GPIO42 NeoPixel/RMT is disabled during RF validation to remove the observed ESP32-S3 RMT allocation failure from the APRS test path.
+          - ADC DMA samples are blocked while AFSK TX owns the audio path.
+          - RX FIFO is bounded and flushed across TX-to-RX recovery.
+          - TX-stop GPIO/ADC work is deferred from the timer ISR to FreeRTOS task context.
+          - Event-only PTT41 / MUX17 / DAC18 START/STOP diagnostics were added.
+          - Per-second tracker counter serial spam was removed.
+          - AFSK transition flags and modem extern declarations are volatile-safe.
+
+          ## Validation gates
+          - **74/74** Rev2.1 source/hardware checks: PASS
+          - **64/64** deep compatibility checks: PASS
+          - **30/30** RF hardware-validation checks: PASS
+          - Packaged binary/partition checks: PASS
+          - PlatformIO compile/link \`esp32s3-twrplus\`: PASS
+          - Firmware packaging and ESP image validation: PASS
+          - Patch idempotence: PASS
+
+          ## Rev2.1 hardware profile
+          - SA868 UART: TX GPIO39 / RX GPIO48
+          - PTT: GPIO41 active LOW; idle HIGH
+          - PD: GPIO40 active HIGH
+          - SQL: GPIO2 active LOW
+          - APRS RX ADC: GPIO1
+          - APRS TX audio: GPIO18
+          - Audio routing: GPIO17
+          - GPIO38 Rev2.0 RF-power selector remains disabled
+          - SA868 DMOSETGROUP RF power: HIGH=0 / LOW=1
+          - SH1106 shared I2C: SDA GPIO8 / SCL GPIO9 @ 400 kHz
+
+          ## Assets
+          - \`TWR_APRS_Rev21_UPDATE.bin\` — normal firmware / Web OTA image
+          - \`TWR_APRS_Rev21_FULL_INSTALL.bin\` — full clean-install image
+          - \`TWR_APRS_Rev21_NIGHTLY_2026-09-05.zip\` — complete bundle including flash helpers
+          - \`SHA256SUMS.txt\` — binary checksums
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "$TAG" "$SOURCE_SHA"
+          git push --force origin "refs/tags/$TAG"
+
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            -f name="Nightly Build — LILYGO T-TWR Plus Rev2.1 — RF Validation — 2026-09-05" \
+            -f target_commitish="$SOURCE_SHA" \
+            -F body=@dist/RELEASE_NOTES.md >/dev/null
+
+          gh release upload "$TAG" \
+            dist/TWR_APRS_Rev21_UPDATE.bin \
+            dist/TWR_APRS_Rev21_FULL_INSTALL.bin \
+            dist/TWR_APRS_Rev21_NIGHTLY_2026-09-05.zip \
+            dist/SHA256SUMS.txt \
+            --clobber
+
+          echo "PASS Nightly release refreshed at $SOURCE_SHA"
