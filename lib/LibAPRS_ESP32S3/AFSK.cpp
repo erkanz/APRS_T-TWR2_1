@@ -231,8 +231,8 @@ void setPtt(bool state)
       digitalWrite(_ptt_pin, HIGH);
     }
     else
-    { // Open Collector to LOW
-      pinMode(_ptt_pin, OUTPUT_OPEN_DRAIN);
+    { // Rev2.1 active LOW PTT: push-pull LOW=TX
+      pinMode(_ptt_pin, OUTPUT);
       digitalWrite(_ptt_pin, LOW);
     }
     // if (config.rf_type == RF_SA8x8_OpenEdit)
@@ -259,8 +259,8 @@ void setPtt(bool state)
       digitalWrite(_ptt_pin, LOW);
     }
     else
-    { // Open Collector to HIGH
-      pinMode(_ptt_pin, OUTPUT_OPEN_DRAIN);
+    { // Rev2.1 active LOW PTT: push-pull HIGH=RX/idle
+      pinMode(_ptt_pin, OUTPUT);
       digitalWrite(_ptt_pin, HIGH);
     }
     digitalWrite(17, LOW);
@@ -615,8 +615,8 @@ void afskSetPTT(int8_t val, bool act)
     digitalWrite(_ptt_pin, LOW);
   }
   else
-  { // Open Collector to HIGH
-    pinMode(_ptt_pin, OUTPUT_OPEN_DRAIN);
+  { // Rev2.1 active LOW PTT: push-pull HIGH=RX/idle
+    pinMode(_ptt_pin, OUTPUT);
     digitalWrite(_ptt_pin, HIGH);
   }
 }

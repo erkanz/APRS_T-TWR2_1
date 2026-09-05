@@ -2690,7 +2690,9 @@ void RF_MODULE_SLEEP()
     sa868.setLowPower();
   else
     rev21SetRfPower(LOW);
-  digitalWrite(PULLDOWN_PIN, LOW);
+  digitalWrite(SA868_PTT_PIN, HIGH); // Rev2.1 RX/idle before radio sleep
+  digitalWrite(SA868_MIC_SEL, LOW);  // normal microphone/radio audio route
+  digitalWrite(PULLDOWN_PIN, LOW);   // SA868 PD asserted
   // PMU.disableDC3();
 }
 
@@ -2768,8 +2770,8 @@ void RF_MODULE(bool boot)
     // Rev2.1: GPIO38 is not an RF-power control.
     // Rev2.1: GPIO38 write removed.
 
-    pinMode(SA868_MIC_SEL, OUTPUT); // MIC_SEL
-    digitalWrite(SA868_MIC_SEL, LOW);
+    pinMode(SA868_MIC_SEL, OUTPUT); // Rev2.1 normal-runtime MIC_CTRL routing
+    digitalWrite(SA868_MIC_SEL, LOW); // normal microphone/radio path
 
     pinMode(SA868_PD_PIN, OUTPUT);
     digitalWrite(SA868_PD_PIN, LOW); // PWR OFF
@@ -2964,8 +2966,10 @@ void RF_MODULE_CHECK()
     if (config.rf_type == RF_SA8x8_OpenEdit)
       sa868.setLowPower();
     rev21SetRfPower(LOW);
+    digitalWrite(SA868_PTT_PIN, HIGH); // Rev2.1 RX/idle before recovery cycle
+    digitalWrite(SA868_MIC_SEL, LOW);  // normal microphone/radio audio route
     pinMode(PULLDOWN_PIN, OUTPUT);
-    digitalWrite(PULLDOWN_PIN, LOW);
+    digitalWrite(PULLDOWN_PIN, LOW);   // SA868 PD asserted
     delay(500);
     RF_MODULE(true);
   }
@@ -3471,7 +3475,9 @@ void setup()
     config.oled_enable = false;
   }   
 
-  display.begin(SSD1306_SWITCHCAPVCC, oled_addr, false); // initialize with the I2C addr 0x3C (for the 128x64)
+  // Rev2.1 shared I2C bus is already initialized by AXP2101 PMU.begin().
+  // periphBegin=false prevents Adafruit_SSD1306 from calling Wire.begin() again.
+  display.begin(SSD1306_SWITCHCAPVCC, oled_addr, false, false);
   // Initialising the UI will init the display too.
 
   // clear the display
@@ -5035,13 +5041,13 @@ void loop()
                         delay(100);
                         vTaskResume(taskSensorHandle);
 #if defined(XPOWERS_CHIP_AXP2101)
-                        PMU.enableDC5();
-                        PMU.enableALDO1();
-                        PMU.enableALDO3();
-                        PMU.enableBLDO2();
-                        PMU.enableALDO2();
-                        PMU.enableALDO4();
-                        PMU.enableBLDO1();
+                        PMU.disableDC5();
+                        PMU.disableALDO1();
+                        PMU.disableALDO3(); // Rev2.1 Radio -> onboard amplifier
+                        PMU.disableBLDO2();
+                        PMU.enableALDO2();  // SD
+                        PMU.enableALDO4();  // GNSS
+                        PMU.enableBLDO1();  // Microphone
                         // Rev2.1: DC3 unused; keep disabled.
 #endif
                     }
@@ -5095,14 +5101,14 @@ void loop()
                         esp_sleep_enable_ext0_wakeup((gpio_num_t)config.rf_dio1_gpio, HIGH);
                         // gpio_wakeup_enable ((gpio_num_t)config.rf_dio1_gpio, GPIO_INTR_HIGH_LEVEL);
 #else
-                        // esp_sleep_enable_ext1_wakeup(0x200, ESP_EXT1_WAKEUP_ALL_LOW);
+                        // esp_sleep_enable_ext1_wakeup(0x200, legacy_ALL_LOW);
                         esp_deep_sleep_enable_gpio_wakeup((1 << config.rf_dio1_gpio), ESP_GPIO_WAKEUP_GPIO_HIGH);
 #endif
 #endif
 
                         delay(100);
 #ifdef __XTENSA__
-                        //esp_sleep_enable_ext1_wakeup(0x1, ESP_EXT1_WAKEUP_ALL_LOW);
+                        //esp_sleep_enable_ext1_wakeup(0x1, legacy_ALL_LOW);
                         gpio_wakeup_enable ((gpio_num_t)0, GPIO_INTR_LOW_LEVEL);
 #else
                         // esp_deep_sleep_enable_gpio_wakeup((1<<9), ESP_GPIO_WAKEUP_GPIO_LOW);
@@ -5175,13 +5181,13 @@ void loop()
 #endif
                         // vTaskResume(taskNetworkHandle);
                         #if defined(XPOWERS_CHIP_AXP2101)
-                        PMU.enableDC5();
-                        PMU.enableALDO1();
-                        PMU.enableALDO3();
-                        PMU.enableBLDO2();
-                        PMU.enableALDO2();
-                        PMU.enableALDO4();
-                        PMU.enableBLDO1();
+                        PMU.disableDC5();
+                        PMU.disableALDO1();
+                        PMU.disableALDO3(); // Rev2.1 Radio -> onboard amplifier
+                        PMU.disableBLDO2();
+                        PMU.enableALDO2();  // SD
+                        PMU.enableALDO4();  // GNSS
+                        PMU.enableBLDO1();  // Microphone
                         // Rev2.1: DC3 unused; keep disabled.
 #endif
                     }
@@ -5201,7 +5207,9 @@ void loop()
                     // esp_sleep_enable_ext0_wakeup(GPIO_NUM_14,LOW);
                     if(config.rf_en)
                     {
-                      digitalWrite(config.rf_pd_gpio, LOW); // RF Power
+                      digitalWrite(config.rf_ptt_gpio, HIGH); // Rev2.1 PTT idle/RX
+                      digitalWrite(config.dac_sel_gpio, LOW); // normal radio/mic audio route
+                      digitalWrite(config.rf_pd_gpio, LOW);   // SA868 power-down
                     }
                     //radioSleep();
                     #if defined(XPOWERS_CHIP_AXP2101)
@@ -5217,8 +5225,11 @@ void loop()
 
                     delay(100);
 #ifdef __XTENSA__
-                    //esp_sleep_enable_ext1_wakeup(0x1, ESP_EXT1_WAKEUP_ALL_LOW);
-                    esp_sleep_enable_ext1_wakeup(0x0, ESP_EXT1_WAKEUP_ALL_LOW);
+                    // ESP32-S3 Rev2.1 Mode C is timer-wake only. The legacy code
+                    // configured EXT1 with mask 0x0 and ALL_LOW; mask 0 selects
+                    // no GPIO and ALL_LOW is unsupported/deprecated on ESP32-S3.
+                    // Do not invent a wake GPIO: the configured timer below is
+                    // the only valid wake source for this mode in this firmware.
 #else
                     esp_deep_sleep_enable_gpio_wakeup((1 << 9), ESP_GPIO_WAKEUP_GPIO_LOW);
 #endif

@@ -55,6 +55,12 @@
 #define ESP2SA868_MIC (18)
 #define SA8682ESP_AUDIO (1)
 
+// LILYGO T-TWR Plus Rev2.1 additional fixed hardware pins
+#define ESP32_PWM_TONE (45)
+#define ESP_MIC_ADC (15)
+#define SA868_SQL (2)
+#define AUDIO_SELECT_PIN (17)
+
 #define BLUETOOTH
 
 #define OLED
