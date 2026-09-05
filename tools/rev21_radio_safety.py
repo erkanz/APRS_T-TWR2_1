@@ -19,14 +19,23 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 def patch_main() -> None:
     text = MAIN.read_text(encoding="utf-8")
 
-    # LilyGO initializes MIC_CTRL_PIN as open-drain; routing LOW selects the
-    # normal microphone/radio path and HIGH releases it to the ESP-audio path.
-    text = replace_once(
-        text,
-        '''    pinMode(SA868_MIC_SEL, OUTPUT); // MIC_SEL\n    digitalWrite(SA868_MIC_SEL, LOW);''',
-        '''    pinMode(SA868_MIC_SEL, OUTPUT_OPEN_DRAIN); // Rev2.1 MIC_CTRL routing\n    digitalWrite(SA868_MIC_SEL, LOW); // normal microphone/radio path''',
-        "match official Rev2.1 MIC_CTRL open-drain routing",
-    )
+    # Official TWRClass::begin() uses MIC_CTRL_PIN as a normal push-pull OUTPUT
+    # during runtime. Open-drain is only used by the official low-power pin
+    # preparation path. Keep normal APRS RX/TX routing electrically identical to
+    # the official runtime: LOW=Mic/Radio path, HIGH=ESP audio -> radio path.
+    legacy = '''    pinMode(SA868_MIC_SEL, OUTPUT); // MIC_SEL\n    digitalWrite(SA868_MIC_SEL, LOW);'''
+    wrong_od = '''    pinMode(SA868_MIC_SEL, OUTPUT_OPEN_DRAIN); // Rev2.1 MIC_CTRL routing\n    digitalWrite(SA868_MIC_SEL, LOW); // normal microphone/radio path'''
+    correct = '''    pinMode(SA868_MIC_SEL, OUTPUT); // Rev2.1 normal-runtime MIC_CTRL routing\n    digitalWrite(SA868_MIC_SEL, LOW); // normal microphone/radio path'''
+    if correct in text:
+        print("SKIP  Rev2.1 MIC_CTRL already uses official runtime OUTPUT mode")
+    elif wrong_od in text:
+        text = text.replace(wrong_od, correct, 1)
+        print("PATCH restore Rev2.1 MIC_CTRL from low-power open-drain to runtime OUTPUT")
+    elif legacy in text:
+        text = text.replace(legacy, correct, 1)
+        print("PATCH document official Rev2.1 runtime MIC_CTRL OUTPUT routing")
+    else:
+        raise RuntimeError("unexpected Rev2.1 MIC_CTRL initialization")
 
     # Generic radio sleep must deassert active-low PTT and restore the normal
     # audio route before dropping PD.
