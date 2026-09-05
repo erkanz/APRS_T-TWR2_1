@@ -67,9 +67,9 @@ jobs:
         run: |
           set -euo pipefail
           git diff --check
-          BEFORE="$(git diff -- src/main.cpp src/webservice.cpp platformio.ini | sha256sum | awk '{print $1}')"
+          BEFORE="$(git diff -- src/main.cpp include/gui_lcd.h src/sensor.cpp src/webservice.cpp platformio.ini | sha256sum | awk '{print $1}')"
           python tools/rev21_deep_compat.py
-          AFTER="$(git diff -- src/main.cpp src/webservice.cpp platformio.ini | sha256sum | awk '{print $1}')"
+          AFTER="$(git diff -- src/main.cpp include/gui_lcd.h src/sensor.cpp src/webservice.cpp platformio.ini | sha256sum | awk '{print $1}')"
           test "$BEFORE" = "$AFTER"
           echo "PASS Rev2.1 deep patch is idempotent"
 
@@ -215,7 +215,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main.cpp src/webservice.cpp include/main.h include/config.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h platformio.ini boards/LilyGo-T-TWR-Plus.json
+          git add src/main.cpp include/gui_lcd.h src/sensor.cpp src/webservice.cpp include/main.h include/config.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h platformio.ini boards/LilyGo-T-TWR-Plus.json
           if git diff --cached --quiet; then
             echo "PASS no generated source changes; committed source is reproducible."
           else
