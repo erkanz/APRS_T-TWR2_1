@@ -33,8 +33,6 @@ def patch_main() -> None:
         "SH1106 initialization",
     )
 
-    # SSD1306::dim() does not exist on Adafruit_SH1106G. Preserve the original
-    # sleep/wake semantics through the controller-independent contrast API.
     text = text.replace('display.dim(true);', 'display.setContrast(0x00);')
     text = text.replace('display.dim(false);', 'display.setContrast(0xFF);')
 
@@ -87,6 +85,16 @@ def patch_gui_header() -> None:
     text = replace_once(text, '#include "Adafruit_SSD1306.h"', '#include <Adafruit_SH110X.h>', "GUI SH1106 include")
     text = replace_once(text, 'extern Adafruit_SSD1306 display;', 'extern Adafruit_SH1106G display;', "GUI SH1106 display declaration")
 
+    # Seven_Segment24pt7b is a project-specific font stored in the historical
+    # bundled GFX tree. Keep only the font data; do not put that legacy library
+    # back on the compiler include/link path.
+    text = replace_once(
+        text,
+        '#include <Fonts/Seven_Segment24pt7b.h>',
+        '#include "../lib/Adafruit_GFX/Fonts/Seven_Segment24pt7b.h"',
+        "project seven-segment font path",
+    )
+
     alias_anchor = '#include <Adafruit_SH110X.h>\n'
     alias_block = '''#include <Adafruit_SH110X.h>
 #ifndef BLACK
@@ -111,12 +119,8 @@ def patch_gui_cpp() -> None:
     text = text.replace('display.dim(false);', 'display.setContrast(0xFF);')
     text = text.replace('display.ssd1306_command(SSD1306_SETCONTRAST);', 'display.setContrast((uint8_t)config.contrast);')
     text = text.replace('display.ssd1306_command(config.contrast);', '')
-
-    # 0xE4 is not a defined SH1106 command. The legacy code sent it immediately
-    # before clearing/redrawing the monitor screen, so omit the undefined command.
     text = text.replace('display.ssd1306_command(0xE4);', '')
     text = text.replace('display.oled_command(0xE4);', '')
-
     text = text.replace('// display.ssd1306_command(SSD1306_SETPRECHARGE);                  // 0xd9', '// SH1106 contrast is handled with display.setContrast()')
     text = text.replace('// display.ssd1306_command(SSD1306_SETVCOMDETECT);                 // 0xDB', '')
 
@@ -148,7 +152,6 @@ def patch_sensor() -> None:
 
 def patch_web() -> None:
     text = WEB.read_text(encoding="utf-8")
-
     helper_old = '''
 // T-TWR Plus Rev2.1 has fixed radio/audio wiring and a fixed system I2C bus.
 // Legacy generic setup pages may expose these GPIO fields, but user input must
@@ -232,31 +235,20 @@ static void enforceRev21RadioHardwareProfile()
 \t\tString html = "OK";
 \t\trequest->send(200, "text/html", html);'''
     text = replace_once(text, old_i2c, new_i2c, "web I2C system-bus normalization")
-
     WEB.write_text(text, encoding="utf-8")
 
 
 def patch_platformio() -> None:
     text = PIO.read_text(encoding="utf-8")
     text = replace_once(text, 'adafruit/Adafruit SSD1306@^2.5.7', 'adafruit/Adafruit SH110X@2.1.14', "SH1106 PlatformIO dependency")
-
-    # The repository contains a bundled Adafruit_GFX 1.5.6 used by the legacy
-    # SSD1306 path. SH110X requires the current Adafruit GFX/GrayOLED stack, so
-    # compiling both copies creates duplicate symbols at link time. The bundled
-    # copy is renamed "Legacy Adafruit GFX Library" in its library.properties and
-    # is explicitly ignored by the Rev2.1 environment.
     if 'lib_ignore = Legacy Adafruit GFX Library\n' not in text:
         anchor = 'monitor_filters = esp32_exception_decoder\n'
         if anchor not in text:
             raise SystemExit("ERROR: platformio lib_ignore insertion anchor missing")
         text = text.replace(anchor, anchor + 'lib_ignore = Legacy Adafruit GFX Library\n', 1)
-
-    # The old standalone SSD1306 implementation lives in src/, so LDF cannot
-    # ignore it. Exclude it explicitly now that all active display code is SH1106.
     if 'build_src_filter = +<*> -<Adafruit_SSD1306.cpp>\n' not in text:
         anchor = 'lib_ignore = Legacy Adafruit GFX Library\n'
         text = text.replace(anchor, anchor + 'build_src_filter = +<*> -<Adafruit_SSD1306.cpp>\n', 1)
-
     PIO.write_text(text, encoding="utf-8")
 
 
