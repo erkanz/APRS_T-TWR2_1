@@ -41,6 +41,9 @@ jobs:
       - name: Apply Rev2.1 runtime stability fixes
         run: python tools/rev21_runtime_fixes.py
 
+      - name: Apply Rev2.1 full hardware compatibility pass
+        run: python tools/rev21_full_compat.py
+
       - name: Verify Rev2.1 source invariants
         run: python tools/verify_rev21_port.py
 
@@ -59,7 +62,7 @@ jobs:
           ENV_DIR=.pio/build/esp32s3-twrplus
           mkdir -p dist
 
-          cp "$ENV_DIR/firmware.bin" dist/TWR_APRS_Rev21_firmware.bin
+          cp "$ENV_DIR/firmware.bin" dist/TWR_APRS_Rev21_UPDATE.bin
           cp "$ENV_DIR/bootloader.bin" dist/bootloader.bin
           cp "$ENV_DIR/partitions.bin" dist/partitions.bin
 
@@ -71,17 +74,40 @@ jobs:
           cp "$BOOT_APP" dist/boot_app0.bin
 
           python -m esptool --chip esp32s3 merge-bin \
-            -o dist/TWR_APRS_Rev21_merged.bin \
+            -o dist/TWR_APRS_Rev21_FULL_INSTALL.bin \
             0x0000 dist/bootloader.bin \
             0x8000 dist/partitions.bin \
             0xe000 dist/boot_app0.bin \
-            0x10000 dist/TWR_APRS_Rev21_firmware.bin
+            0x10000 dist/TWR_APRS_Rev21_UPDATE.bin
+
+          cat > dist/FLASH_INSTRUCTIONS.txt <<'EOF'
+          LILYGO T-TWR Plus Rev2.1
+          =========================
+
+          NORMAL UPDATE - PRESERVES Wi-Fi / CALLSIGN / SETTINGS
+            File:   TWR_APRS_Rev21_UPDATE.bin
+            Offset: 0x10000
+            Do NOT run erase_flash.
+
+            python -m esptool --chip esp32s3 --port COMxx --baud 921600 write_flash -z 0x10000 TWR_APRS_Rev21_UPDATE.bin
+
+          CLEAN/FULL INSTALL - ERASES/REPLACES BOOT + PARTITION + APPLICATION IMAGE
+            File:   TWR_APRS_Rev21_FULL_INSTALL.bin
+            Offset: 0x0000
+
+            python -m esptool --chip esp32s3 --port COMxx erase_flash
+            python -m esptool --chip esp32s3 --port COMxx --baud 921600 write_flash -z 0x0000 TWR_APRS_Rev21_FULL_INSTALL.bin
+          EOF
+          sed -i 's/^          //' dist/FLASH_INSTRUCTIONS.txt
 
           {
             echo "Repository: $GITHUB_REPOSITORY"
             echo "Source commit: $GITHUB_SHA"
             echo "Environment: esp32s3-twrplus"
             echo "Hardware: LILYGO T-TWR Plus Rev2.1"
+            echo "Board profile: LilyGo-T-TWR-Plus (QIO flash / OPI PSRAM)"
+            echo "UPDATE image offset: 0x10000 (preserves settings; no erase)"
+            echo "FULL_INSTALL image offset: 0x0000 (clean install)"
             echo
             ls -lh dist/*.bin
           } > dist/BUILD_INFO.txt
@@ -93,7 +119,7 @@ jobs:
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TWR-APRS-Rev21-${{ github.sha }}
+          name: TWR-APRS-Rev21-FULL-COMPAT-${{ github.sha }}
           path: dist/
           if-no-files-found: error
           retention-days: 30
@@ -104,10 +130,10 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main.cpp include/config.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h platformio.ini
+          git add src/main.cpp include/config.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h platformio.ini boards/LilyGo-T-TWR-Plus.json
           if git diff --cached --quiet; then
             echo "Rev2.1 source patch already committed."
           else
-            git commit -m "Apply verified T-TWR Rev2.1 runtime fixes"
+            git commit -m "Apply verified T-TWR Rev2.1 full compatibility fixes"
             git push origin HEAD:rev21-hardware-port
           fi
