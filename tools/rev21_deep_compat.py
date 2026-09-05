@@ -113,6 +113,14 @@ def patch_gui_cpp() -> None:
     text = text.replace('// display.ssd1306_command(SSD1306_SETPRECHARGE);                  // 0xd9', '// SH1106 contrast is handled with display.setContrast()')
     text = text.replace('// display.ssd1306_command(SSD1306_SETVCOMDETECT);                 // 0xDB', '')
 
+    # Some replacements above intentionally remove only the command text from an
+    # indented line. Strip line-end whitespace so the generated patch is clean
+    # and deterministic under git diff --check on every CI run.
+    had_final_newline = text.endswith('\n')
+    text = '\n'.join(line.rstrip() for line in text.splitlines())
+    if had_final_newline:
+        text += '\n'
+
     active_lines = [line for line in text.splitlines() if not line.lstrip().startswith('//')]
     active = '\n'.join(active_lines)
     if 'display.dim(' in active or 'display.ssd1306_command(' in active or 'SSD1306_SETCONTRAST' in active:
