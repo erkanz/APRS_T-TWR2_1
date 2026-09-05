@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "src/main.cpp"
 GUI_H = ROOT / "include/gui_lcd.h"
+SENSOR = ROOT / "src/sensor.cpp"
 WEB = ROOT / "src/webservice.cpp"
 PIO = ROOT / "platformio.ini"
 
@@ -19,8 +20,6 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 def patch_main() -> None:
     text = MAIN.read_text(encoding="utf-8")
 
-    # Rev2.1 carries a 1.3-inch SH1106 128x64 OLED. The I2C address alone
-    # does not identify the controller, so use a native SH1106 driver.
     text = replace_once(
         text,
         '#include "Adafruit_SSD1306.h"',
@@ -44,8 +43,6 @@ def patch_main() -> None:
         "SH1106 initialization",
     )
 
-    # Mode B deletes the sensor/network tasks before light sleep. A deleted
-    # FreeRTOS task handle must never be resumed or retained as a live handle.
     old_sensor_delete = '                        vTaskDelete(taskSensorHandle);'
     new_sensor_delete = (
         '                        if (taskSensorHandle != nullptr)\n'
@@ -93,31 +90,31 @@ def patch_main() -> None:
 
 def patch_gui_header() -> None:
     text = GUI_H.read_text(encoding="utf-8")
-
-    text = replace_once(
-        text,
-        '#include "Adafruit_SSD1306.h"',
-        '#include <Adafruit_SH110X.h>',
-        "GUI SH1106 include",
-    )
-    text = replace_once(
-        text,
-        'extern Adafruit_SSD1306 display;',
-        'extern Adafruit_SH1106G display;',
-        "GUI SH1106 display declaration",
-    )
-
+    text = replace_once(text, '#include "Adafruit_SSD1306.h"', '#include <Adafruit_SH110X.h>', "GUI SH1106 include")
+    text = replace_once(text, 'extern Adafruit_SSD1306 display;', 'extern Adafruit_SH1106G display;', "GUI SH1106 display declaration")
     GUI_H.write_text(text, encoding="utf-8")
+
+
+def patch_sensor() -> None:
+    text = SENSOR.read_text(encoding="utf-8")
+    old = '        Wire.begin(config.i2c_sda_pin, config.i2c_sck_pin, config.i2c_freq);'
+    new = (
+        '        // Rev2.1 Wire is the shared AXP2101/SH1106 system bus and is already\n'
+        '        // initialized by PMU.begin(). Do not restart/re-route it from sensor init.\n'
+        '        Wire.setClock(400000);'
+    )
+    text = replace_once(text, old, new, "sensor shared-I2C reuse")
+    SENSOR.write_text(text, encoding="utf-8")
 
 
 def patch_web() -> None:
     text = WEB.read_text(encoding="utf-8")
 
     helper_old = '''
-// T-TWR Plus Rev2.1 has a fixed radio/audio wiring topology.  The legacy
-// generic MOD page still exposes GPIO fields, but those values must never be
-// allowed to re-route live Rev2.1 hardware (GPIO2 is SQL, GPIO4 is PMU IRQ,
-// and GPIO38 is not the Rev2.1 RF power selector).
+// T-TWR Plus Rev2.1 has fixed radio/audio wiring and a fixed system I2C bus.
+// Legacy generic setup pages may expose these GPIO fields, but user input must
+// never re-route live board hardware. GPIO2 is SQL, GPIO4 is PMU IRQ, GPIO38 is
+// not the Rev2.1 RF power selector, and GPIO8/9 are the shared AXP2101/SH1106 bus.
 static void enforceRev21RadioHardwareProfile()
 {
     config.rf_tx_gpio = 39;
@@ -130,6 +127,9 @@ static void enforceRev21RadioHardwareProfile()
     config.rf_pd_active = HIGH;
     config.rf_pwr_active = LOW;
     config.rf_ptt_active = LOW;
+    config.i2c_sda_pin = 8;
+    config.i2c_sck_pin = 9;
+    config.i2c_freq = 400000;
 }
 '''
     helper_new = '''
@@ -149,6 +149,7 @@ static void enforceRev21RadioHardwareProfile()
     config.rf_pd_active = HIGH;
     config.rf_pwr_active = LOW;
     config.rf_ptt_active = LOW;
+    config.i2c_enable = true;
     config.i2c_sda_pin = 8;
     config.i2c_sck_pin = 9;
     config.i2c_freq = 400000;
@@ -186,7 +187,7 @@ static void enforceRev21RadioHardwareProfile()
 \t\trequest->send(200, "text/html", html);'''
     new_i2c = '''\t\tconfig.i2c_enable = En;
 \t\t// I2C_0 is the Rev2.1 system bus shared by AXP2101 and SH1106.
-\t\t// Keep its physical pins/clock fixed even if the legacy form posts other values.
+\t\t// Keep it enabled and keep its physical pins/clock fixed.
 \t\tenforceRev21RadioHardwareProfile();
 \t\tsaveConfiguration("/default.cfg", config);
 \t\tString html = "OK";
@@ -198,18 +199,14 @@ static void enforceRev21RadioHardwareProfile()
 
 def patch_platformio() -> None:
     text = PIO.read_text(encoding="utf-8")
-    text = replace_once(
-        text,
-        'adafruit/Adafruit SSD1306@^2.5.7',
-        'adafruit/Adafruit SH110X@2.1.14',
-        "SH1106 PlatformIO dependency",
-    )
+    text = replace_once(text, 'adafruit/Adafruit SSD1306@^2.5.7', 'adafruit/Adafruit SH110X@2.1.14', "SH1106 PlatformIO dependency")
     PIO.write_text(text, encoding="utf-8")
 
 
 def main() -> None:
     patch_main()
     patch_gui_header()
+    patch_sensor()
     patch_web()
     patch_platformio()
     print("PASS Rev2.1 deep compatibility patch applied/idempotent")
