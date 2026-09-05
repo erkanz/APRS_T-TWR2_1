@@ -20,24 +20,9 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 def patch_afsk() -> None:
     text = AFSK.read_text(encoding="utf-8")
 
-    text = replace_once(
-        text,
-        "bool pttON = false;\nbool pttOFF = false;",
-        "volatile bool pttON = false;\nvolatile bool pttOFF = false;",
-        "volatile PTT transition flags",
-    )
-    text = replace_once(
-        text,
-        "bool hw_afsk_dac_isr = false;",
-        "volatile bool hw_afsk_dac_isr = false;",
-        "volatile TX ISR flag",
-    )
-    text = replace_once(
-        text,
-        "int8_t adcEn = 0;\nint8_t dacEn = 0;",
-        "volatile int8_t adcEn = 0;\nvolatile int8_t dacEn = 0;",
-        "volatile ADC/DAC transition flags",
-    )
+    text = replace_once(text, "bool pttON = false;\nbool pttOFF = false;", "volatile bool pttON = false;\nvolatile bool pttOFF = false;", "volatile PTT transition flags")
+    text = replace_once(text, "bool hw_afsk_dac_isr = false;", "volatile bool hw_afsk_dac_isr = false;", "volatile TX ISR flag")
+    text = replace_once(text, "int8_t adcEn = 0;\nint8_t dacEn = 0;", "volatile int8_t adcEn = 0;\nvolatile int8_t dacEn = 0;", "volatile ADC/DAC transition flags")
 
     old_led = '''void LED_init(int8_t led_tx_pin, int8_t led_rx_pin, int8_t led_strip_pin)
 {
@@ -69,17 +54,10 @@ def patch_afsk() -> None:
 '''
     text = replace_once(text, old_led, new_led, "disable Rev2.1 NeoPixel/RMT init")
 
-    afsk_init_marker = "  _led_strip_pin = led_strip_pin;\n\n  _ptt_active = ptt_act;"
-    afsk_init_replacement = (
-        "  _led_strip_pin = -1; // Rev2.1 RF validation: NeoPixel/RMT disabled\n\n"
-        "  _ptt_active = ptt_act;"
-    )
-    text = replace_once(
-        text,
-        afsk_init_marker,
-        afsk_init_replacement,
-        "disable strip pin in AFSK_init",
-    )
+    text = replace_once(text,
+        "  _led_strip_pin = led_strip_pin;\n\n  _ptt_active = ptt_act;",
+        "  _led_strip_pin = -1; // Rev2.1 RF validation: NeoPixel/RMT disabled\n\n  _ptt_active = ptt_act;",
+        "disable strip pin in AFSK_init")
 
     old_setptt_tail = '''    // delay(100);
     pttOFF = true;
@@ -92,12 +70,7 @@ def patch_afsk() -> None:
   }
 }
 '''
-    text = replace_once(
-        text,
-        old_setptt_tail,
-        new_setptt_tail,
-        "do not re-arm deferred PTT flag",
-    )
+    text = replace_once(text, old_setptt_tail, new_setptt_tail, "do not re-arm deferred PTT flag")
 
     timer_mux = "portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;\n\n"
     helpers = '''portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
@@ -114,12 +87,7 @@ void AFSK_LogRadioState(const char *phase)
   const int pttLevel = (_ptt_pin > -1) ? digitalRead(_ptt_pin) : -1;
   const int muxLevel = digitalRead(17);
   log_i("[RF TX] %s PTT%d=%d active=%s MUX17=%d DAC%d=%s",
-        phase,
-        _ptt_pin,
-        pttLevel,
-        _ptt_active ? "HIGH" : "LOW",
-        muxLevel,
-        _dac_pin,
+        phase, _ptt_pin, pttLevel, _ptt_active ? "HIGH" : "LOW", muxLevel, _dac_pin,
         (phase && phase[0] == 'S' && phase[1] == 'T' && phase[2] == 'A') ? "ACTIVE" : "IDLE");
 }
 
@@ -141,12 +109,7 @@ void AFSK_LogRadioState(const char *phase)
 
   portENTER_CRITICAL_ISR(&timerMux);
 '''
-    text = replace_once(
-        text,
-        callback_open,
-        callback_new,
-        "drop ADC DMA samples while TX is active",
-    )
+    text = replace_once(text, callback_open, callback_new, "drop ADC DMA samples while TX is active")
 
     old_fifo_push = '''fifo.buffer[fifo.head] = adcPush;
 fifo.head = (fifo.head + 1) % BUFFER_SIZE; // Wrap around using modulo
@@ -159,13 +122,7 @@ fifo.count++;
       fifo.count++;
     }
 '''
-    text = replace_once(
-        text,
-        old_fifo_push,
-        new_fifo_push,
-        "bound RX FIFO count",
-    )
-
+    text = replace_once(text, old_fifo_push, new_fifo_push, "bound RX FIFO count")
     AFSK.write_text(text, encoding="utf-8")
 
 
@@ -175,8 +132,7 @@ def patch_afsk_header() -> None:
 
     decl_anchor = '''void LED_init(int8_t led_tx_pin, int8_t led_rx_pin, int8_t led_strip_pin);
 
-#endif
-'''
+#endif'''
     decl_new = '''void LED_init(int8_t led_tx_pin, int8_t led_rx_pin, int8_t led_strip_pin);
 void AFSK_FlushRxFifo(void);
 void AFSK_LogRadioState(const char *phase);
@@ -187,14 +143,8 @@ extern volatile bool hw_afsk_dac_isr;
 extern volatile int8_t adcEn;
 extern volatile int8_t dacEn;
 
-#endif
-'''
-    text = replace_once(
-        text,
-        decl_anchor,
-        decl_new,
-        "AFSK transition declarations",
-    )
+#endif'''
+    text = replace_once(text, decl_anchor, decl_new, "AFSK transition declarations")
     AFSK_H.write_text(text, encoding="utf-8")
 
 
@@ -253,18 +203,16 @@ extern volatile bool pttOFF;
 }
 '''
     text = replace_once(text, old_stop, new_stop, "defer TX STOP recovery to task context")
-
     MODEM.write_text(text, encoding="utf-8")
 
 
 def patch_main() -> None:
     text = MAIN.read_text(encoding="utf-8")
-    text = replace_once(
-        text,
+    text = replace_once(text,
         "extern bool pttON;\nextern bool pttOFF;",
         "extern volatile bool pttON;\nextern volatile bool pttOFF;",
-        "volatile main PTT transition externs",
-    )
+        "volatile main PTT transition externs")
+
     old_transition = '''    if (adcEn == 1)
     {
       AFSK_TimerEnable(true);
@@ -320,12 +268,7 @@ def patch_main() -> None:
       adcEn = 0;
     }
 '''
-    text = replace_once(
-        text,
-        old_transition,
-        new_transition,
-        "task-context TX-to-RX recovery",
-    )
+    text = replace_once(text, old_transition, new_transition, "task-context TX-to-RX recovery")
     MAIN.write_text(text, encoding="utf-8")
 
 
