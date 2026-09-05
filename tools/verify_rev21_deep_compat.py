@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 main = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
 gui_h = (ROOT / "include/gui_lcd.h").read_text(encoding="utf-8")
+sensor = (ROOT / "src/sensor.cpp").read_text(encoding="utf-8")
 web = (ROOT / "src/webservice.cpp").read_text(encoding="utf-8")
 pio = (ROOT / "platformio.ini").read_text(encoding="utf-8")
 workflow = (ROOT / ".github/workflows/rev21-build.yml").read_text(encoding="utf-8")
@@ -26,6 +27,11 @@ expect("SSD1306 active begin removed", "display.begin(SSD1306_SWITCHCAPVCC" not 
     line for line in main.splitlines() if not line.lstrip().startswith("//")
 ))
 expect("SH1106 dependency pinned", "adafruit/Adafruit SH110X@2.1.14" in pio)
+
+# System I2C belongs to the board: PMU.begin() owns Wire initialization, OLED and
+# sensors reuse it. Sensor setup must not re-run Wire.begin or move GPIO8/9.
+expect("sensor code does not restart system Wire", "Wire.begin(config.i2c_sda_pin, config.i2c_sck_pin, config.i2c_freq);" not in sensor)
+expect("sensor code restores 400kHz shared bus", "Wire.setClock(400000);" in sensor)
 
 # Mode A legitimately suspends/resumes taskSensor. Mode B deletes/recreates it.
 expect("only one taskSensor resume remains", main.count("vTaskResume(taskSensorHandle);") == 1)
@@ -52,6 +58,7 @@ for token in (
     "config.rf_sql_active = LOW;",
     "config.rf_pd_active = HIGH;",
     "config.rf_ptt_active = LOW;",
+    "config.i2c_enable = true;",
     "config.i2c_sda_pin = 8;",
     "config.i2c_sck_pin = 9;",
     "config.i2c_freq = 400000;",
