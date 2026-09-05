@@ -53,18 +53,25 @@ jobs:
       - name: Apply Rev2.1 OLED shared-I2C compatibility fix
         run: python tools/rev21_display_i2c_compat.py
 
+      - name: Apply Rev2.1 deep compatibility pass
+        run: python tools/rev21_deep_compat.py
+
       - name: Verify Rev2.1 source invariants
         run: python tools/verify_rev21_port.py
 
-      - name: Verify committed source is patch-idempotent
+      - name: Verify Rev2.1 deep compatibility invariants
+        run: python tools/verify_rev21_deep_compat.py
+
+      - name: Verify patch pass is idempotent
         shell: bash
         run: |
           set -euo pipefail
-          git diff --exit-code -- \
-            src/main.cpp include/main.h include/config.h \
-            lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h \
-            platformio.ini boards/LilyGo-T-TWR-Plus.json
-          echo "PASS committed source already contains all Rev2.1 compatibility fixes"
+          git diff --check
+          BEFORE="$(git diff -- src/main.cpp src/webservice.cpp platformio.ini | sha256sum | awk '{print $1}')"
+          python tools/rev21_deep_compat.py
+          AFTER="$(git diff -- src/main.cpp src/webservice.cpp platformio.ini | sha256sum | awk '{print $1}')"
+          test "$BEFORE" = "$AFTER"
+          echo "PASS Rev2.1 deep patch is idempotent"
 
       - name: Install PlatformIO and esptool
         run: |
@@ -104,10 +111,10 @@ jobs:
           setlocal
           set PORT=%~1
           if "%PORT%"=="" set /p PORT=Enter COM port (example COM27): 
-          python -m esptool --chip esp32s3 --port %PORT% --baud 921600 write_flash -z 0x10000 TWR_APRS_Rev21_UPDATE.bin
+          python -m esptool --chip esp32s3 --port %PORT% --baud 921600 write_flash -z 0x10000 TWR_APRS_Rev21_UPDATE.bin 0x410000 TWR_APRS_Rev21_UPDATE.bin
           if errorlevel 1 exit /b %errorlevel%
           echo.
-          echo Rev2.1 firmware update complete. Wi-Fi/callsign/settings were not erased.
+          echo Rev2.1 firmware update complete in both OTA slots. Wi-Fi/callsign/settings were not erased.
           endlocal
           EOF
           sed -i 's/^          //' dist/FLASH_UPDATE_KEEP_SETTINGS.bat
@@ -131,19 +138,23 @@ jobs:
           LILYGO T-TWR Plus Rev2.1 - FULL COMPATIBILITY BUILD
           ===================================================
 
-          RECOMMENDED UPDATE - PRESERVES SETTINGS
+          RECOMMENDED SERIAL UPDATE - PRESERVES SETTINGS
           ------------------------------------------------------
-          This is also the correct update method from the earlier Rev2.1 test builds.
-          The PlatformIO Arduino builder intentionally uses a DIO ROM-bootstrap image
-          even when the board is configured for QIO flash; the second-stage bootloader
-          enables the configured Quad-I/O mode. Therefore no special bootloader
-          migration is required.
+          The firmware has A/B OTA partitions. Web OTA may make either app0 or
+          app1 the currently selected boot slot, so a serial update writes the
+          same verified application image to BOTH OTA slots. NVS, OTA metadata,
+          LittleFS and user settings are not erased.
 
-            File:   TWR_APRS_Rev21_UPDATE.bin
-            Offset: 0x10000
+          The PlatformIO Arduino builder intentionally uses a DIO ROM-bootstrap
+          image even when the board is configured for QIO flash; the second-stage
+          bootloader enables the configured Quad-I/O mode.
+
+            File:    TWR_APRS_Rev21_UPDATE.bin
+            app0:    0x10000
+            app1:    0x410000
             Do NOT run erase_flash.
 
-            python -m esptool --chip esp32s3 --port COMxx --baud 921600 write_flash -z 0x10000 TWR_APRS_Rev21_UPDATE.bin
+            python -m esptool --chip esp32s3 --port COMxx --baud 921600 write_flash -z 0x10000 TWR_APRS_Rev21_UPDATE.bin 0x410000 TWR_APRS_Rev21_UPDATE.bin
 
           Windows helper:
             FLASH_UPDATE_KEEP_SETTINGS.bat COM27
@@ -167,10 +178,11 @@ jobs:
             echo "Environment: esp32s3-twrplus"
             echo "Hardware: LILYGO T-TWR Plus Rev2.1"
             echo "Board profile: official LilyGo-T-TWR-Plus"
+            echo "Display controller: SH1106 128x64"
             echo "Configured flash: QIO 80MHz / 16MB"
             echo "PSRAM topology: OPI (qio_opi memory profile)"
             echo "ROM bootstrap header: DIO by PlatformIO Arduino design; second stage enables QIO"
-            echo "UPDATE image offset: 0x10000, no erase, settings preserved"
+            echo "SERIAL UPDATE image offsets: app0 0x10000 + app1 0x410000, no erase, settings preserved"
             echo "FULL_INSTALL image offset: 0x0000 after erase"
             echo
             ls -lh dist/*.bin
@@ -203,10 +215,10 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main.cpp include/main.h include/config.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h platformio.ini boards/LilyGo-T-TWR-Plus.json
+          git add src/main.cpp src/webservice.cpp include/main.h include/config.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h platformio.ini boards/LilyGo-T-TWR-Plus.json
           if git diff --cached --quiet; then
             echo "PASS no generated source changes; committed source is reproducible."
           else
-            git commit -m "Apply verified T-TWR Rev2.1 full compatibility fixes"
+            git commit -m "Apply verified T-TWR Rev2.1 deep compatibility fixes"
             git push origin HEAD:rev21-hardware-port
           fi
