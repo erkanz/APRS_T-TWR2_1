@@ -4084,8 +4084,10 @@ String compress_position(double nowLat, double nowLng, int alt_feed, double cour
 //     return strRet;
 // }
 
-String trk_gps_postion(String comment)
+String trk_gps_postion(String comment, bool forceUncompressed)
 {
+  if (forceUncompressed)
+    log_i("[APRS COMPAT] beacon format=UNCOMPRESSED");
   String rawData = "";
   String lat, lon;
   double nowLat, nowLng;
@@ -4164,7 +4166,7 @@ String trk_gps_postion(String comment)
     LastLng = nowLng;
     lastTimeStamp = nowTime;
 
-    if (config.trk_compress)
+    if (config.trk_compress && !forceUncompressed)
     { // Compress DATA
 
       String compPosition = compress_position(nowLat, nowLng, gps.altitude.feet(), course, spdKnot, aprs_table, aprs_symbol, (gps.satellites.value() > 3));
@@ -4281,13 +4283,15 @@ String trk_gps_postion(String comment)
   return tnc2Raw;
 }
 
-String trk_fix_position(String comment)
+String trk_fix_position(String comment, bool forceUncompressed)
 {
+  if (forceUncompressed)
+    log_i("[APRS COMPAT] beacon format=UNCOMPRESSED");
   char strtmp[500], loc[100];
   String tnc2Raw = "";
   memset(strtmp, 0, sizeof(strtmp));
   memset(loc, 0, sizeof(loc));
-  if (config.trk_compress)
+  if (config.trk_compress && !forceUncompressed)
   { // Compress DATA
 
     String compPosition = compress_position(config.trk_lat, config.trk_lon, (int)(config.trk_alt * 3.28F), 0, 0, config.trk_symbol[0], config.trk_symbol[1], true);
@@ -6582,7 +6586,7 @@ void taskAPRS(void *pvParameters)
 
         if (config.trk_gps) // TRACKER by GPS
         {
-          rawData = trk_gps_postion(cmn);
+          rawData = trk_gps_postion(cmn, false);
           if (config.log & LOG_TRACKER)
           {
             logTracker(gps.location.lat(), gps.location.lng(), gps.speed.kmph(), gps.course.deg());
@@ -6590,7 +6594,7 @@ void taskAPRS(void *pvParameters)
         }
         else // TRACKER by FIX position
         {
-          rawData = trk_fix_position(cmn);
+          rawData = trk_fix_position(cmn, false);
           if (config.log & LOG_TRACKER)
           {
             logTracker(config.trk_lat, config.trk_lon, 0, 0);
