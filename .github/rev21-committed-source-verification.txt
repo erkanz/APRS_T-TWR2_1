@@ -1,0 +1,6 @@
+Committed-source verification trigger for the LILYGO T-TWR Plus Rev2.1 port.
+
+Verified source checkpoint before this trigger:
+00e2e583e83bc073eea487c8f73239110e527b13
+
+The workflow run created by this commit must reproduce the firmware without generating additional source changes.
