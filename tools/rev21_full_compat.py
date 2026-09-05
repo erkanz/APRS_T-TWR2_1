@@ -4,6 +4,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "src/main.cpp"
+MAIN_H = ROOT / "include/main.h"
 PIO = ROOT / "platformio.ini"
 
 
@@ -26,14 +27,14 @@ def patch_main() -> None:
     text = replace_once(text, profile_old, profile_new,
                         "force Rev2.1 I2C pins/frequency in hardware profile")
 
-    # GPIO38 is absent as an RF H/L selector on Rev2.1.  NiceRF SA868S firmware
+    # GPIO38 is absent as an RF H/L selector on Rev2.1. NiceRF SA868S firmware
     # instead uses DMOSETGROUP parameter 0 for HIGH and 1 for LOW power.
     helper_old = '''// Rev2.1 has no GPIO-controlled RF-power rail.  GPIO38 belongs to Rev2.0.\nstatic inline void rev21SetRfPower(bool highPower)\n{\n  (void)highPower;\n}\n'''
     helper_new = '''// Rev2.1 has no GPIO38 H/L selector.  SA868S NiceRF firmware uses\n// DMOSETGROUP parameter 0=HIGH, 1=LOW for TX power.  The legacy helper stays\n// a no-op because changing power is applied atomically when RF_MODULE()\n// reprograms the radio (web radio changes set RF_INIT=true).\nstatic inline uint8_t rev21Sa868PowerBit(bool highPower)\n{\n  return highPower ? 0 : 1;\n}\n\nstatic inline void rev21SetRfPower(bool highPower)\n{\n  (void)highPower;\n}\n'''
     text = replace_once(text, helper_old, helper_new,
                         "map Rev2.1 SA868S RF power to DMOSETGROUP semantics")
 
-    # Never key the active-low PTT during radio boot.  afskSetPTT() has already
+    # Never key the active-low PTT during radio boot. afskSetPTT() has already
     # established idle HIGH, and RF_MODULE must preserve it while cycling PD.
     boot_ptt_old = '''    digitalWrite(SA868_PTT_PIN,LOW);\n    \n    // pinMode(config.rf_tx_gpio,OUTPUT);'''
     boot_ptt_new = '''    pinMode(SA868_PTT_PIN, OUTPUT);\n    digitalWrite(SA868_PTT_PIN, HIGH); // Rev2.1 idle/RX; PTT is active LOW\n    \n    // pinMode(config.rf_tx_gpio,OUTPUT);'''
@@ -47,9 +48,9 @@ def patch_main() -> None:
     text = replace_once(text, group_old, group_new,
                         "program SA868S HIGH/LOW power from config.rf_power")
 
-    # Let XPowers initialize the shared I2C bus once.  Calling Wire.begin()
+    # Let XPowers initialize the shared I2C bus once. Calling Wire.begin()
     # immediately before PMU.begin(...pins...) produces Arduino-ESP32 3.x
-    # 'Bus already started' warnings.  Restore the desired 400 kHz after PMU init.
+    # 'Bus already started' warnings. Restore 400 kHz after PMU init.
     i2c_old = '''  config.i2c_enable = true;\n  Wire.begin(config.i2c_sda_pin, config.i2c_sck_pin, config.i2c_freq);\n\n  // Setup Power PMU AXP2101\n  setupPower();\n'''
     i2c_new = '''  config.i2c_enable = true;\n\n  // Setup Power PMU AXP2101. PMU.begin() initializes Wire on Rev2.1 pins.\n  setupPower();\n  Wire.setClock(config.i2c_freq);\n'''
     text = replace_once(text, i2c_old, i2c_new,
@@ -62,12 +63,42 @@ def patch_main() -> None:
     text = replace_once(text, pmu_loop_old, pmu_loop_new,
                         "make PMU retry diagnostics truthful")
 
-    # Match LilyGO Rev2.1 idle power domains.  ALDO2=SD, ALDO4=GNSS,
+    # Match LilyGO Rev2.1 idle power domains. ALDO2=SD, ALDO4=GNSS,
     # BLDO1=microphone are enabled. DC3/DC5/ALDO1/ALDO3/BLDO2/DLDO1 are off.
     rails_old = '''  //! External pin power supply\n  PMU.enableDC5();\n  PMU.enableALDO1();\n  PMU.enableALDO3();\n  PMU.enableBLDO2();\n\n  //! ALDO2 MICRO TF Card VDD\n  PMU.enableALDO2();\n\n  //! ALDO4 GNSS VDD\n  PMU.enableALDO4();\n\n  //! BLDO1 MIC VDD\n  PMU.enableBLDO1();\n\n  //! DC3 Radio & Pixels VDD\n  // Rev2.1: DC3 unused; keep disabled.\n  // power off when not in use\n  PMU.disableDC2();\n  PMU.disableDC4();\n  PMU.disableCPUSLDO();\n  PMU.disableDLDO1();\n  PMU.disableDLDO2();\n'''
     rails_new = '''  //! Rev2.1 idle power-domain state follows LilyGO TWRClass::beginPower/begin.\n  PMU.disableDC3();   // Rev2.1 unused; radio is battery-fed and controlled by PD GPIO40\n  PMU.disableDC5();   // user rail, unused by base APRS firmware\n  PMU.disableALDO1(); // user rail, unused by base APRS firmware\n  PMU.disableALDO3(); // LOW selects Radio -> onboard audio amplifier on Rev2.1\n  PMU.disableBLDO2(); // user rail, unused by base APRS firmware\n  PMU.disableDLDO1(); // downloader routing switch disabled in normal operation\n\n  //! ALDO2 MICRO TF Card VDD\n  PMU.enableALDO2();\n\n  //! ALDO4 GNSS VDD\n  PMU.enableALDO4();\n\n  //! BLDO1 MIC VDD\n  PMU.enableBLDO1();\n\n  // power off unavailable/unused channels\n  PMU.disableDC2();\n  PMU.disableDC4();\n  PMU.disableCPUSLDO();\n  PMU.disableDLDO2();\n'''
     text = replace_once(text, rails_old, rails_new,
                         "match LilyGO Rev2.1 PMU idle power domains")
+
+    # Mode A/B wake paths in the legacy firmware re-enabled every user rail.
+    # On Rev2.1 that incorrectly turns ALDO3 into ESP->speaker mode and powers
+    # unused DC5/ALDO1/BLDO2. Restore only the official baseline rails.
+    wake_pattern = re.compile(
+        r'''(?P<indent>\s*)PMU\.enableDC5\(\);\n(?P=indent)PMU\.enableALDO1\(\);(?:\s*//[^\n]*)?\n(?P=indent)PMU\.enableALDO3\(\);(?:\s*//[^\n]*)?\n(?P=indent)PMU\.enableBLDO2\(\);\n(?P=indent)PMU\.enableALDO2\(\);\n(?P=indent)PMU\.enableALDO4\(\);\n(?P=indent)PMU\.enableBLDO1\(\);'''
+    )
+    def wake_repl(match):
+        i = match.group('indent')
+        return (f"{i}PMU.disableDC5();\n"
+                f"{i}PMU.disableALDO1();\n"
+                f"{i}PMU.disableALDO3(); // Rev2.1 Radio -> onboard amplifier\n"
+                f"{i}PMU.disableBLDO2();\n"
+                f"{i}PMU.enableALDO2();  // SD\n"
+                f"{i}PMU.enableALDO4();  // GNSS\n"
+                f"{i}PMU.enableBLDO1();  // Microphone")
+    text, wake_count = wake_pattern.subn(wake_repl, text)
+    if wake_count:
+        print(f"PATCH normalize Rev2.1 wake power domains: {wake_count} paths")
+    elif "PMU.disableALDO3(); // Rev2.1 Radio -> onboard amplifier" in text:
+        print("SKIP  Rev2.1 wake power domains already normalized")
+    else:
+        raise RuntimeError("Rev2.1 wake rail sequences not found")
+
+    # Deep-sleep entry must never leave an active-low PTT asserted while the
+    # radio PD line is dropped. Restore RX/idle audio routing first, then sleep radio.
+    deep_old = '''                    if(config.rf_en)\n                    {\n                      digitalWrite(config.rf_pd_gpio, LOW); // RF Power\n                    }'''
+    deep_new = '''                    if(config.rf_en)\n                    {\n                      digitalWrite(config.rf_ptt_gpio, HIGH); // Rev2.1 PTT idle/RX\n                      digitalWrite(config.dac_sel_gpio, LOW); // normal radio/mic audio route\n                      digitalWrite(config.rf_pd_gpio, LOW);   // SA868 power-down\n                    }'''
+    text = replace_once(text, deep_old, deep_new,
+                        "force safe Rev2.1 PTT/audio/PD deep-sleep sequence")
 
     # Normalize the charge-current diagnostic after older migration scripts may
     # have nested the bounds guard multiple times.
@@ -89,6 +120,15 @@ def patch_main() -> None:
                         "bound-check charge-voltage display table")
 
     MAIN.write_text(text, encoding="utf-8")
+
+
+def patch_main_h() -> None:
+    text = MAIN_H.read_text(encoding="utf-8")
+    old = '''#define ESP2SA868_MIC (18)\n#define SA8682ESP_AUDIO (1)\n'''
+    new = '''#define ESP2SA868_MIC (18)\n#define SA8682ESP_AUDIO (1)\n\n// LILYGO T-TWR Plus Rev2.1 additional fixed hardware pins\n#define ESP32_PWM_TONE (45)\n#define ESP_MIC_ADC (15)\n#define SA868_SQL (2)\n#define AUDIO_SELECT_PIN (17)\n'''
+    text = replace_once(text, old, new,
+                        "add official Rev2.1 PWM/MIC/SQL/audio-select pin definitions")
+    MAIN_H.write_text(text, encoding="utf-8")
 
 
 def patch_platformio() -> None:
@@ -116,5 +156,6 @@ def patch_platformio() -> None:
 
 if __name__ == "__main__":
     patch_main()
+    patch_main_h()
     patch_platformio()
     print("Rev2.1 full hardware compatibility pass applied.")
