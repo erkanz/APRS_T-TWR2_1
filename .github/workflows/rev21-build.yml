@@ -28,6 +28,9 @@ jobs:
       - name: Apply T-TWR Rev2.1 hardware port
         run: python tools/rev21_port.py
 
+      - name: Repair AFSK macro continuation
+        run: python tools/repair_rev21_afsk_macros.py
+
       - name: Verify Rev2.1 source invariants
         run: python tools/verify_rev21_port.py
 
