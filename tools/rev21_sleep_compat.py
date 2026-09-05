@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "src/main.cpp"
@@ -34,6 +35,20 @@ def patch_main() -> None:
         print("PATCH remove invalid ESP32-S3 EXT1 zero-mask/ALL_LOW wake source")
     else:
         raise RuntimeError("unexpected Mode C deep-sleep wake block; refusing blind edit")
+
+    # Remove stale commented references to the ESP32-only ALL_LOW enum in other
+    # legacy sleep branches. This touches comments only; any active occurrence is
+    # intentionally left intact so the invariant verifier will still reject it.
+    text, comment_count = re.subn(
+        r'^(\s*//.*)ESP_EXT1_WAKEUP_ALL_LOW(.*)$',
+        r'\1legacy_ALL_LOW\2',
+        text,
+        flags=re.MULTILINE,
+    )
+    if comment_count:
+        print(f"PATCH remove stale ALL_LOW enum name from {comment_count} comment lines")
+    else:
+        print("SKIP  no stale ALL_LOW enum comments remain")
 
     MAIN.write_text(text, encoding="utf-8")
 
