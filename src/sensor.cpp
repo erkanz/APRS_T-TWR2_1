@@ -1375,7 +1375,9 @@ void taskSensor(void *pvParameters)
                 break;
         }
         i2c_busy = true;
-        Wire.begin(config.i2c_sda_pin, config.i2c_sck_pin, config.i2c_freq);
+        // Rev2.1 Wire is the shared AXP2101/SH1106 system bus and is already
+        // initialized by PMU.begin(). Do not restart/re-route it from sensor init.
+        Wire.setClock(400000);
         // ccs = new Adafruit_CCS811();
         // ccs->begin(90, &Wire); // 0x5A=90
         i2c_busy = false;

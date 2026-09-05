@@ -24,11 +24,17 @@
 #include "MenuSystem.h"
 #include <Fonts/FreeSansBold9pt7b.h>
 #include <Fonts/FreeSerifItalic9pt7b.h>
-#include <Fonts/Seven_Segment24pt7b.h>
+#include "../lib/Adafruit_GFX/Fonts/Seven_Segment24pt7b.h"
 #include <Fonts/Picopixel.h>
 
 #include <Wire.h>
-#include "Adafruit_SSD1306.h"
+#include "rev21_sh1106_compat.h"
+#ifndef BLACK
+#define BLACK SH110X_BLACK
+#endif
+#ifndef WHITE
+#define WHITE SH110X_WHITE
+#endif
 #include <Adafruit_GFX.h>
 #include <Adafruit_I2CDevice.h>
 #include "cppQueue.h"
@@ -156,7 +162,7 @@ const menuListName menuList[MAX_MENU] PROGMEM = {
 // Create icon from https://rickkas7.github.io/DisplayGenerator
 const uint8_t bluetooth_icon[] = {0x10, 0x5c, 0x38, 0x10, 0x38, 0x5c, 0x10};
 
-extern Adafruit_SSD1306 display;
+extern Rev21SH1106G display;
 extern SA868 sa868;
 extern cppQueue dispBuffer;
 extern int conStat;

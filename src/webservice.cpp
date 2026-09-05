@@ -31,6 +31,28 @@ extern bool RF_INIT;
 
 bool defaultSetting = false;
 
+// T-TWR Plus Rev2.1 has fixed radio/audio wiring and a fixed system I2C bus.
+// Legacy generic setup pages may expose these GPIO fields, but user input must
+// never re-route live board hardware. GPIO2 is SQL, GPIO4 is PMU IRQ, GPIO38 is
+// not the Rev2.1 RF power selector, and GPIO8/9 are the shared AXP2101/SH1106 bus.
+static void enforceRev21RadioHardwareProfile()
+{
+    config.rf_tx_gpio = 39;
+    config.rf_rx_gpio = 48;
+    config.rf_sql_gpio = 2;
+    config.rf_pd_gpio = 40;
+    config.rf_pwr_gpio = -1;
+    config.rf_ptt_gpio = 41;
+    config.rf_sql_active = LOW;
+    config.rf_pd_active = HIGH;
+    config.rf_pwr_active = LOW;
+    config.rf_ptt_active = LOW;
+    config.i2c_enable = true;
+    config.i2c_sda_pin = 8;
+    config.i2c_sck_pin = 9;
+    config.i2c_freq = 400000;
+}
+
 void serviceHandle()
 {
 	// server.handleClient();
@@ -1425,6 +1447,9 @@ void handle_radio(AsyncWebServerRequest *request)
 		// config.noise=noiseEn;
 		// config.agc=agcEn;
 		config.rf_en = radioEnable;
+		// Rev2.1 radio GPIOs/polarities are board wiring, not user configuration.
+		// Normalize before persisting and before RF_INIT can reprogram live hardware.
+		enforceRev21RadioHardwareProfile();
 		String html = "OK";
 		request->send(200, "text/html", html); // send to someones browser when asked
 		saveConfiguration("/default.cfg", config);
@@ -2483,6 +2508,9 @@ void handle_mod(AsyncWebServerRequest *request)
 		}
 
 		config.i2c_enable = En;
+		// I2C_0 is the Rev2.1 system bus shared by AXP2101 and SH1106.
+		// Keep it enabled and keep its physical pins/clock fixed.
+		enforceRev21RadioHardwareProfile();
 		saveConfiguration("/default.cfg", config);
 		String html = "OK";
 		request->send(200, "text/html", html);

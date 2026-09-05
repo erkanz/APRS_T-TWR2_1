@@ -4833,23 +4833,23 @@ void on_display_selected(MenuItem *p_menu_item)
                     config.dim = cbDim.GetIndex();
                     if (config.dim == 0)
                     {
-                        display.dim(true);
+                        display.setContrast(0x00);
                         display.clearDisplay();
                         display.display();
                     }
                     else if (config.dim == 1)
                     {
-                        display.dim(true);
+                        display.setContrast(0x00);
                     }
                     else if (config.dim == 4)
                     {
-                        // display.dim(true);
-                        display.ssd1306_command(SSD1306_SETCONTRAST);
-                        display.ssd1306_command(config.contrast);
+                        // display.setContrast(0x00);
+                        display.setContrast((uint8_t)config.contrast);
+
                     }
                     else
                     {
-                        display.dim(false);
+                        display.setContrast(0xFF);
                     }
                     cbDim.Show();
                 }
@@ -4857,12 +4857,12 @@ void on_display_selected(MenuItem *p_menu_item)
                 {
                     cbContrast.SelectValue(0, 200, 1);
                     config.contrast = cbContrast.GetValue();
-                    // display.ssd1306_command(SSD1306_SETPRECHARGE);                  // 0xd9
-                    // display.ssd1306_command(config.contrast);
-                    // display.ssd1306_command(SSD1306_SETVCOMDETECT);                 // 0xDB
-                    // display.ssd1306_command(config.contrast);
-                    display.ssd1306_command(SSD1306_SETCONTRAST);
-                    display.ssd1306_command(config.contrast);
+                    // SH1106 contrast is handled with display.setContrast()
+                    //
+
+                    //
+                    display.setContrast((uint8_t)config.contrast);
+
                     cbContrast.Show();
                 }
                 else if (encoder0Pos == 3)
@@ -5748,22 +5748,22 @@ void gpsDisp()
         { // Auto dim timeout
             if (millis() > (dimTimeout + 60000))
             {
-                display.dim(true);
+                display.setContrast(0x00);
             }
             else
             {
-                display.dim(false);
+                display.setContrast(0xFF);
             }
         }
         else if (config.dim == 3)
         { // Dim for time
             if (tmstruct.tm_hour > 5 && tmstruct.tm_hour < 19)
             {
-                display.dim(false);
+                display.setContrast(0xFF);
             }
             else
             {
-                display.dim(true);
+                display.setContrast(0x00);
             }
         }
 
@@ -5926,22 +5926,22 @@ void topBar(int ws)
     { // Auto dim timeout
         if (millis() > (dimTimeout + 60000))
         {
-            display.dim(true);
+            display.setContrast(0x00);
         }
         else
         {
-            display.dim(false);
+            display.setContrast(0xFF);
         }
     }
     else if (config.dim == 3)
     { // Dim for time
         if (hour() > 5 && hour() < 17)
         {
-            display.dim(false);
+            display.setContrast(0xFF);
         }
         else
         {
-            display.dim(true);
+            display.setContrast(0x00);
         }
     }
 
@@ -6929,7 +6929,7 @@ void dispWindow(String line, uint8_t mode, bool filter)
 
         if (Monitor)
         {
-            display.ssd1306_command(0xE4);
+
             delay(10);
             display.clearDisplay();
             if (dispPush)

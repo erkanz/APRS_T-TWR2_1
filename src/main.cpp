@@ -59,7 +59,7 @@ extern fs::LITTLEFSFS LITTLEFS;
 bool i2c_busy = false;
 
 #include <Wire.h>
-#include "Adafruit_SSD1306.h"
+#include "rev21_sh1106_compat.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_I2CDevice.h>
 #include "sa868.h"
@@ -73,7 +73,7 @@ Adafruit_NeoPixel *strip;
 #define SCREEN_HEIGHT 64    // OLED display height, in pixels
 #define OLED_RESET -1       // Reset pin # (or -1 if sharing Arduino reset pin)
 #define SCREEN_ADDRESS 0x3D ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+Rev21SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1, 400000, 400000);
 
 struct pbuf_t aprs;
 ParseAPRS aprsParse;
@@ -3031,7 +3031,7 @@ void powerSave()
 {
   if (config.oled_enable)
   {
-    display.dim(true);
+    display.setContrast(0x00);
   }
   else
   {
@@ -3052,7 +3052,7 @@ void powerWakeup()
 {
   if (config.oled_enable)
   {
-    display.dim(false);
+    display.setContrast(0xFF);
   }
   else
   {
@@ -3476,8 +3476,10 @@ void setup()
   }   
 
   // Rev2.1 shared I2C bus is already initialized by AXP2101 PMU.begin().
-  // periphBegin=false prevents Adafruit_SSD1306 from calling Wire.begin() again.
-  display.begin(SSD1306_SWITCHCAPVCC, oled_addr, false, false);
+  // SH1106 uses the PMU-initialized shared Wire bus. Keep reset disabled because
+  // the module has no dedicated OLED reset GPIO. The constructor restores 400 kHz
+  // after transfers so the shared Rev2.1 I2C bus keeps its configured clock.
+  display.begin(oled_addr, false);
   // Initialising the UI will init the display too.
 
   // clear the display
@@ -5070,12 +5072,20 @@ void loop()
                         log_d("System to light sleep Mode B %d Sec", config.pwr_sleep_interval);
                         // sleep_timer = millis() + (config.pwr_sleep_interval * 1000);
                         StandByTick = millis() + (config.pwr_sleep_interval * 1000);
-                        vTaskDelete(taskSensorHandle);
+                        if (taskSensorHandle != nullptr)
+                        {
+                            vTaskDelete(taskSensorHandle);
+                            taskSensorHandle = nullptr;
+                        }
                         display.clearDisplay();
                         display.display();
                         PowerOff();
                         // adc_power_off();
-                        vTaskDelete(taskNetworkHandle);
+                        if (taskNetworkHandle != nullptr)
+                        {
+                            vTaskDelete(taskNetworkHandle);
+                            taskNetworkHandle = nullptr;
+                        }
                         WiFi.disconnect(true); // Disconnect from the network
                         WiFi.persistent(false);
                         WiFi.mode(WIFI_OFF); // Switch WiFi off
@@ -5143,7 +5153,8 @@ void loop()
                         PowerOn();
                         sensorInit(false);
                         delay(100);
-                        vTaskResume(taskSensorHandle);
+                        // Mode B deleted taskSensor before light sleep; it is recreated below.
+                        // Never resume a deleted/stale FreeRTOS task handle.
 #ifdef __XTENSA__
                         xTaskCreatePinnedToCore(
                             taskNetwork,        /* Function to implement the task */
