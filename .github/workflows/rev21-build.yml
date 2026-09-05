@@ -26,10 +26,20 @@ jobs:
           python-version: '3.12'
 
       - name: Apply T-TWR Rev2.1 hardware port
-        run: python tools/rev21_port.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q "static void applyTwrRev21HardwareProfile()" src/main.cpp; then
+            echo "Rev2.1 hardware port already present in committed source."
+          else
+            python tools/rev21_port.py
+          fi
 
       - name: Repair AFSK macro continuation
         run: python tools/repair_rev21_afsk_macros.py
+
+      - name: Apply Rev2.1 runtime stability fixes
+        run: python tools/rev21_runtime_fixes.py
 
       - name: Verify Rev2.1 source invariants
         run: python tools/verify_rev21_port.py
@@ -94,10 +104,10 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main.cpp include/config.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h
+          git add src/main.cpp include/config.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h platformio.ini
           if git diff --cached --quiet; then
             echo "Rev2.1 source patch already committed."
           else
-            git commit -m "Apply verified T-TWR Rev2.1 hardware port"
+            git commit -m "Apply verified T-TWR Rev2.1 runtime fixes"
             git push origin HEAD:rev21-hardware-port
           fi
