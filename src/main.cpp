@@ -3269,7 +3269,10 @@ void setupPower()
   uint8_t val = PMU.getChargerConstantCurr();
   log_d("Val = %d", val);
   if (val < (sizeof(currTable) / sizeof(currTable[0])))
+    if (val < (sizeof(currTable) / sizeof(currTable[0])))
     log_d("Setting Charge Target Current : %d", currTable[val]);
+  else
+    log_w("Charge current enum %u is outside legacy display table", (unsigned)val);
   else
     log_w("Charge current enum %u is outside legacy display table", (unsigned)val);
 
