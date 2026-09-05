@@ -112,7 +112,7 @@ jobs:
           (cd dist && sha256sum *.bin > SHA256SUMS.txt)
           {
             echo "Repository: $GITHUB_REPOSITORY"
-            echo "Source commit: $GITHUB_SHA"
+            echo "Build workflow commit: $GITHUB_SHA"
             echo "Branch: $GITHUB_REF_NAME"
             echo "Hardware: LILYGO T-TWR Plus Rev2.1"
             echo "Validation status: STATIC/CI ONLY - PHYSICAL RF VALIDATION PENDING"
@@ -125,6 +125,15 @@ jobs:
             echo "- Add event-only PTT41/MUX17 TX START/STOP diagnostics"
             echo "- Remove per-second tracker counter serial spam"
           } > dist/BUILD_INFO.txt
+          rm -f dist/TWR_APRS_Rev21_NIGHTLY_2026-09-05.zip
+          zip -j dist/TWR_APRS_Rev21_NIGHTLY_2026-09-05.zip \
+            dist/TWR_APRS_Rev21_UPDATE.bin \
+            dist/TWR_APRS_Rev21_FULL_INSTALL.bin \
+            dist/bootloader.bin \
+            dist/partitions.bin \
+            dist/boot_app0.bin \
+            dist/SHA256SUMS.txt \
+            dist/BUILD_INFO.txt
 
       - name: Upload validation artifact
         uses: actions/upload-artifact@v4
@@ -133,6 +142,81 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Refresh Nightly GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/rev21-hardware-port' && steps.patch_state.outputs.dirty == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="nightly-rev21-2026-09-05"
+          RELEASE_ID="383216847"
+          SOURCE_SHA="$(git log -1 --format=%H -- src/main.cpp src/config.cpp src/webservice.cpp lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/LibAPRS_ESP32S3/modem.cpp)"
+
+          cat > dist/RELEASE_NOTES.md <<EOF
+          # LILYGO T-TWR Plus Rev2.1 — Nightly RF Validation Build
+
+          **Firmware source checkpoint:** \`${SOURCE_SHA}\`  
+          **CI workflow run:** \`${GITHUB_RUN_ID}\`  
+          **Target hardware:** LILYGO T-TWR Plus Rev2.1 / ESP32-S3 / SA868S / SH1106 128x64
+
+          > **Nightly status:** Static/source/build verification is green. Physical on-device RF validation is still required before this can be called hardware-validated stable.
+
+          ## RF validation fixes in this refresh
+          - Disabled GPIO42 NeoPixel/RMT during RF validation to remove the observed ESP32-S3 RMT allocation failure from the APRS test path.
+          - ADC DMA samples are no longer enqueued while AFSK TX owns the audio path.
+          - RX FIFO is bounded and flushed during the TX-to-RX transition.
+          - TX-stop GPIO/ADC work is deferred out of the timer ISR into FreeRTOS task context.
+          - Added event-only TX diagnostics for PTT41 / MUX17 / DAC18 START and STOP state.
+          - Removed per-second tracker counter serial spam.
+          - Normalized all AFSK transition flags and modem extern declarations to volatile-safe definitions.
+
+          ## Rev2.1 validation gates
+          - **74/74** Rev2.1 source/hardware invariants: PASS
+          - **64/64** deep compatibility invariants: PASS
+          - **30/30** RF hardware-validation invariants: PASS
+          - PlatformIO compile/link for \`esp32s3-twrplus\`: PASS
+          - Firmware image packaging: PASS
+          - RF-validation patch idempotence: PASS
+
+          ## Hardware behavior retained
+          - SA868 UART: TX GPIO39 / RX GPIO48
+          - PTT: GPIO41 active LOW; idle HIGH
+          - PD: GPIO40 active HIGH
+          - SQL: GPIO2 active LOW
+          - APRS RX ADC: GPIO1
+          - APRS TX audio: GPIO18
+          - Audio routing: GPIO17
+          - Rev2.0 GPIO38 RF-power selector remains disabled on Rev2.1
+          - RF HIGH/LOW remains SA868 DMOSETGROUP HIGH=0 / LOW=1
+          - SH1106 OLED uses shared I2C SDA8/SCL9 at 400 kHz
+
+          ## Assets
+          - \`TWR_APRS_Rev21_UPDATE.bin\` — normal firmware update
+          - \`TWR_APRS_Rev21_FULL_INSTALL.bin\` — clean full install image
+          - \`TWR_APRS_Rev21_NIGHTLY_2026-09-05.zip\` — complete build bundle
+          - \`SHA256SUMS.txt\` — binary checksums
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "$TAG" "$SOURCE_SHA"
+          git push --force origin "refs/tags/$TAG"
+
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            -f name="Nightly Build — LILYGO T-TWR Plus Rev2.1 — RF Validation — 2026-09-05" \
+            -f target_commitish="$SOURCE_SHA" \
+            -F body=@dist/RELEASE_NOTES.md >/dev/null
+
+          gh release upload "$TAG" \
+            dist/TWR_APRS_Rev21_UPDATE.bin \
+            dist/TWR_APRS_Rev21_FULL_INSTALL.bin \
+            dist/TWR_APRS_Rev21_NIGHTLY_2026-09-05.zip \
+            dist/SHA256SUMS.txt \
+            --clobber
+
+          echo "PASS Nightly release refreshed at source $SOURCE_SHA"
 
       - name: Commit verified source patch
         if: github.event_name == 'push' && github.ref == 'refs/heads/rev21-hardware-port' && steps.patch_state.outputs.dirty == 'true'
