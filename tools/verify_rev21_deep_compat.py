@@ -32,8 +32,10 @@ expect("SSD1306 active begin removed", "display.begin(SSD1306_SWITCHCAPVCC" not 
 expect("SH1106 dependency pinned", "adafruit/Adafruit SH110X@2.1.14" in pio)
 expect("GUI no SSD1306 command API", "display.ssd1306_command(" not in gui_cpp)
 expect("GUI no SSD1306 dim API", "display.dim(" not in gui_cpp)
+expect("main no SSD1306 dim API", "display.dim(" not in main)
 expect("GUI uses SH110X contrast API", "display.setContrast(" in gui_cpp)
-expect("GUI raw command uses generic OLED API", "display.oled_command(0xE4);" in gui_cpp)
+expect("main sleep/wake uses SH110X contrast API", "display.setContrast(0x00);" in main and "display.setContrast(0xFF);" in main)
+expect("undefined OLED command 0xE4 removed", "oled_command(0xE4)" not in gui_cpp and "ssd1306_command(0xE4)" not in gui_cpp)
 
 # System I2C belongs to the board: PMU.begin() owns Wire initialization, OLED and
 # sensors reuse it. Sensor setup must not re-run Wire.begin or move GPIO8/9.
