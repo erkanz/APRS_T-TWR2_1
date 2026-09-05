@@ -161,6 +161,31 @@ XPowersAXP2101 PMU;
 
 Configuration config;
 
+// T-TWR Plus Rev2.1 hardware profile.  Apply this after loading persistent
+// configuration so an old Rev2.0/default.cfg cannot restore unsafe GPIOs.
+static void applyTwrRev21HardwareProfile()
+{
+  config.rf_tx_gpio = 39;      // ESP32 -> SA868 UART
+  config.rf_rx_gpio = 48;      // SA868 -> ESP32 UART
+  config.rf_sql_gpio = 2;      // Rev2.1 hardware SQL, active LOW
+  config.rf_pd_gpio = 40;      // SA868 power-down control
+  config.rf_pwr_gpio = -1;     // GPIO38 is Rev2.0-only; never drive it on Rev2.1
+  config.rf_ptt_gpio = 41;
+  config.rf_sql_active = LOW;
+  config.rf_pd_active = HIGH;
+  config.rf_pwr_active = LOW;
+  config.adc_gpio = 1;         // SA868 audio -> ESP32 ADC
+  config.dac_gpio = 18;        // ESP32 AFSK -> SA868 audio
+  config.adc_sel_gpio = -1;
+  config.dac_sel_gpio = 17;    // audio mux
+}
+
+// Rev2.1 has no GPIO-controlled RF-power rail.  GPIO38 belongs to Rev2.0.
+static inline void rev21SetRfPower(bool highPower)
+{
+  (void)highPower;
+}
+
 pkgListType *pkgList;
 
 TelemetryType *Telemetry;
@@ -1348,9 +1373,9 @@ void defaultConfig()
 
   config.rf_tx_gpio = 39;
   config.rf_rx_gpio = 48;
-  config.rf_sql_gpio = -1;
+  config.rf_sql_gpio = 2; // T-TWR Rev2.1 SQL, active LOW
   config.rf_pd_gpio = 40;
-  config.rf_pwr_gpio = 38;
+  config.rf_pwr_gpio = -1; // GPIO38 is Rev2.0-only
   config.rf_ptt_gpio = 41;
   config.rf_sql_active = 0;
   config.rf_pd_active = 1;
@@ -2425,7 +2450,7 @@ void burstAfterVoice()
   {
     rawData = trk_fix_position(cmn);
   }
-  digitalWrite(POWER_PIN, config.rf_power); // RF Power LOW
+  rev21SetRfPower(config.rf_power); // RF Power LOW
   digitalWrite(SA868_MIC_SEL, HIGH);        // Select = ESP2MIC
   status.txCount++;
   log_d("Burst TX->RF: %s\n", rawData.c_str());
@@ -2438,7 +2463,7 @@ void burstAfterVoice()
   //     break;
   //   delay(50); // TOT 5sec
   // }
-  digitalWrite(SA868_PWR_PIN, 0); // set RF Power Low
+  // Rev2.1: GPIO38 write removed.
 }
 
 bool pkgTxSend()
@@ -2560,20 +2585,9 @@ uint8_t popGwRaw(uint8_t *raw)
 
 void setupPowerRF(bool sts)
 {
-  // bool result = PMU.begin(Wire, AXP2101_SLAVE_ADDRESS, I2C_SDA, I2C_SCL);
-  // if (result == false) {
-  //     while (1) {
-  //         Serial.println("PMU is not online...");
-  //         delay(500);
-  //     }
-  // }
-  //! DC3 Radio Pixels VDD , Don't change
-  if(sts){
-    PMU.setDC3Voltage(3400);
-    PMU.enableDC3();
-  }else{
-    PMU.disableDC3();
-  }
+  // T-TWR Rev2.1: the SA868 rail is not on AXP2101 DC3.
+  // Radio on/off is controlled only by SA868_PD_PIN (GPIO40).
+  (void)sts;
 }
 
 bool SA868_waitResponse(String &data, String rsp, uint32_t timeout)
@@ -2662,7 +2676,7 @@ void RF_MODULE_SLEEP()
   if (config.rf_type == RF_SA8x8_OpenEdit)
     sa868.setLowPower();
   else
-    digitalWrite(POWER_PIN, LOW);
+    rev21SetRfPower(LOW);
   digitalWrite(PULLDOWN_PIN, LOW);
   // PMU.disableDC3();
 }
@@ -2738,8 +2752,8 @@ void RF_MODULE(bool boot)
   {
     //SerialRF.begin(9600, SERIAL_8N1, SA868_RX_PIN, SA868_TX_PIN);
     //pinMode(BUTTON_PTT_PIN, INPUT_PULLUP); // PTT BUTTON
-    pinMode(SA868_PWR_PIN, OUTPUT);
-    digitalWrite(SA868_PWR_PIN, LOW); // RF POWER LOW
+    // Rev2.1: GPIO38 is not an RF-power control.
+    // Rev2.1: GPIO38 write removed.
 
     pinMode(SA868_MIC_SEL, OUTPUT); // MIC_SEL
     digitalWrite(SA868_MIC_SEL, LOW);
@@ -2935,7 +2949,7 @@ void RF_MODULE_CHECK()
     log_d("RF Module %s sleep", RF_TYPE[config.rf_type]);
     if (config.rf_type == RF_SA8x8_OpenEdit)
       sa868.setLowPower();
-    digitalWrite(POWER_PIN, LOW);
+    rev21SetRfPower(LOW);
     pinMode(PULLDOWN_PIN, OUTPUT);
     digitalWrite(PULLDOWN_PIN, LOW);
     delay(500);
@@ -3077,8 +3091,7 @@ void setupPower()
   // PMU.setDC1Voltage(3300);
 
   //! DC3 Radio & Pixels VDD , Don't change
-  PMU.setDC3Voltage(3400);
-
+  // Rev2.1: DC3 unused; do not configure it.
   //! ALDO2 MICRO TF Card VDD, Don't change
   PMU.setALDO2Voltage(3300);
 
@@ -3086,7 +3099,7 @@ void setupPower()
   PMU.setALDO4Voltage(3300);
 
   //! BLDO1 MIC VDD, Don't change
-  PMU.setBLDO1Voltage(3300);
+  PMU.setBLDO1Voltage(2000); // LilyGO Rev2.1 beginPower() reference value
 
   //! The following supply voltages can be controlled by the user
   // DC5 IMAX=2A
@@ -3128,8 +3141,7 @@ void setupPower()
   PMU.enableBLDO1();
 
   //! DC3 Radio & Pixels VDD
-  PMU.enableDC3();
-
+  // Rev2.1: DC3 unused; keep disabled.
   // power off when not in use
   PMU.disableDC2();
   PMU.disableDC4();
@@ -3396,6 +3408,8 @@ void setup()
     }
   }
 
+  applyTwrRev21HardwareProfile();
+  log_d("[REV2.1] HW profile: UART TX=39 RX=48 SQL=2 PD=40 PTT=41 ADC=1 DAC=18 MUX=17 RF_PWR=disabled");
   log_d("Start ESP32APRS_T-TWR V%s", String(VERSION).c_str());
   // log_d("Push BOOT after 3 sec for Factory Default config.");
   log_d("Total heap: %d", ESP.getHeapSize());
@@ -3710,13 +3724,15 @@ void setup()
   upTimeStamp = millis() / 1000;
   esp_task_wdt_config_t twdt_config = {
     .timeout_ms = 30000, // 30 seconds
-    .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,    // Bitmask of all cores
+    .idle_core_mask = 0, // Do not subscribe IDLE0/IDLE1 to the user TWDT
     .trigger_panic = false,
   };
-esp_task_wdt_init(&twdt_config);
-printf("TWDT initialized\n");
-esp_task_wdt_add(NULL);
-esp_task_wdt_status(NULL);
+  esp_err_t twdt_rc = esp_task_wdt_reconfigure(&twdt_config);
+  if (twdt_rc == ESP_ERR_INVALID_STATE)
+    twdt_rc = esp_task_wdt_init(&twdt_config);
+  printf("[REV2.1] TWDT configure rc=%d\n", (int)twdt_rc);
+  if (esp_task_wdt_status(NULL) != ESP_OK)
+    esp_task_wdt_add(NULL);
 StandByTick = millis() + (config.pwr_stanby_delay * 1000);
 }
 
@@ -4747,7 +4763,7 @@ void loop()
     AFSKInitAct = false;
     delay(50);
 
-    digitalWrite(POWER_PIN, config.rf_power); // RF Power
+    rev21SetRfPower(config.rf_power); // RF Power
     // sa868.setTxPower(sa868._config.rf_power);
     digitalWrite(SA868_MIC_SEL, LOW); // Select = MIC
     digitalWrite(SA868_PTT_PIN, LOW); // PTT RF
@@ -4833,7 +4849,7 @@ void loop()
           sa868.setLowPower();
         sa868.TxOn();
       }
-      digitalWrite(POWER_PIN, config.rf_power); // RF Power
+      rev21SetRfPower(config.rf_power); // RF Power
       setTransmit(true);
       log_d("PTT ON");
       pttON = false;
@@ -4843,7 +4859,7 @@ void loop()
     // {
     if (pttOFF)
     {
-      digitalWrite(POWER_PIN, LOW); // RF Power
+      rev21SetRfPower(LOW); // RF Power
       //delay(100);
       sa868.TxOff();
       //sa868.setLowPower();
@@ -4981,7 +4997,7 @@ void loop()
                         PMU.disableALDO2();
                         // PMU.disableALDO4(); //GNSS,
                         PMU.disableBLDO1(); // TF Card
-                        PMU.disableDC3();
+                        // Rev2.1: DC3 unused; no radio control through this rail.
 #endif
                         setCpuFrequencyMhz(80);
                         esp_task_wdt_reset();
@@ -5011,7 +5027,7 @@ void loop()
                         PMU.enableALDO2();
                         PMU.enableALDO4();
                         PMU.enableBLDO1();
-                        PMU.enableDC3();
+                        // Rev2.1: DC3 unused; keep disabled.
 #endif
                     }
                 }
@@ -5056,7 +5072,7 @@ void loop()
                         PMU.disableALDO2();
                         PMU.disableALDO4(); // GNSS,
                         PMU.disableBLDO1(); // TF Card
-                        PMU.disableDC3();
+                        // Rev2.1: DC3 unused; no radio control through this rail.
                         // esp_sleep_enable_ext0_wakeup((gpio_num_t)PMU_IRQ, LOW);
                         gpio_wakeup_enable((gpio_num_t)PMU_IRQ, GPIO_INTR_LOW_LEVEL);
 #else
@@ -5151,7 +5167,7 @@ void loop()
                         PMU.enableALDO2();
                         PMU.enableALDO4();
                         PMU.enableBLDO1();
-                        PMU.enableDC3();
+                        // Rev2.1: DC3 unused; keep disabled.
 #endif
                     }
                 }
@@ -5181,7 +5197,7 @@ void loop()
                     PMU.disableALDO2();
                     PMU.disableALDO4();
                     PMU.disableBLDO1();
-                    PMU.disableDC3();
+                    // Rev2.1: DC3 unused; no radio control through this rail.
 #endif
 
                     delay(100);

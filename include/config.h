@@ -288,11 +288,11 @@ typedef struct Config_Struct
 
 	// RF Module GPIO
 	unsigned long rf_baudrate;
-	int8_t rf_tx_gpio = 48;
-	int8_t rf_rx_gpio = 39;
-	int8_t rf_sql_gpio = 33;
+	int8_t rf_tx_gpio = 39; // T-TWR Rev2.1 ESP32->SA868 UART
+	int8_t rf_rx_gpio = 48; // T-TWR Rev2.1 SA868->ESP32 UART
+	int8_t rf_sql_gpio = 2;  // T-TWR Rev2.1 SQL, active LOW
 	int8_t rf_pd_gpio = 40;
-	int8_t rf_pwr_gpio = 38;
+	int8_t rf_pwr_gpio = -1; // GPIO38 is Rev2.0-only
 	int8_t rf_ptt_gpio = 41;
 	bool rf_sql_active = 0;
 	bool rf_pd_active = 1;

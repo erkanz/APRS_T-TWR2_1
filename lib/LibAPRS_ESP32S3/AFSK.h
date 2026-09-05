@@ -169,8 +169,8 @@ inline static uint8_t sinSample(uint16_t i)
 //#define MIC_PIN 26             // Out wave to PIN 26
 // #define RSSI_PIN 33
 // #define PTT_PIN 32
-#define LED_RX_PIN 2
-#define LED_TX_PIN 4
+#define LED_RX_PIN (-1) // Rev2.1 GPIO2 is SA868 SQL
+#define LED_TX_PIN (-1) // Rev2.1 GPIO4 is PMU IRQ
 
 #include "esp_adc/adc_continuous.h"
 
@@ -181,14 +181,14 @@ inline static uint8_t sinSample(uint16_t i)
     {                                \
         extern bool hw_afsk_dac_isr; \
         hw_afsk_dac_isr = true;      \
-        digitalWrite(LED_TX_PIN,HIGH);\
+        (void)0;                      \
     } while (0)
 #define AFSK_DAC_IRQ_STOP()          \
     do                               \
     {                                \
         extern bool hw_afsk_dac_isr; \
         hw_afsk_dac_isr = false;     \
-        digitalWrite(LED_TX_PIN,LOW);\
+        (void)0;                      \
     } while (0)
 //#define AFSK_DAC_INIT()        do { DAC_DDR |= (DAC_PINS) ; PTT_DDR = 0b01000000;} while (0)
 

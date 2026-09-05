@@ -46,7 +46,7 @@ extern unsigned long custom_preamble;
 extern unsigned long custom_tail;
 int adcVal;
 
-int8_t _sql_pin = 38, _ptt_pin = 41, _pwr_pin, _dac_pin = 18, _adc_pin = 1;
+int8_t _sql_pin = -1, _ptt_pin = 41, _pwr_pin = -1, _dac_pin = 18, _adc_pin = 1;
 bool _sql_active, _ptt_active = HIGH, _pwr_active;
 
 uint8_t adc_atten;
@@ -499,12 +499,14 @@ void setTransmit(bool val)
 
 bool getReceive()
 {
-  bool ret = false;
-  if ((digitalRead(_ptt_pin) ^ _ptt_active) == 0) // signal active with ptt_active
-    return false;                                 // PTT Protection receive
-  if (digitalRead(LED_RX_PIN))                    // Check RX LED receiving.
-    ret = true;
-  return ret;
+  if (_ptt_pin > -1 && ((digitalRead(_ptt_pin) ^ _ptt_active) == 0))
+    return false; // PTT protection
+
+  // Rev2.1 exposes SA868 SQL on GPIO2.  LOW means the radio is receiving.
+  if (_sql_pin > -1)
+    return ((digitalRead(_sql_pin) ^ _sql_active) == 0);
+
+  return ModemDcdState() != 0;
 }
 
 uint8_t modem_config = 0;
@@ -901,8 +903,8 @@ void AFSK_init(int8_t adc_pin, int8_t dac_pin, int8_t ptt_pin, int8_t sql_pin, i
   tp->avg = 2048;
   tp->cdt = false;
   tp->cdt_lvl = 0;
-  tp->cdt_led_pin = 2;
-  tp->cdt_led_on = 2;
+  tp->cdt_led_pin = -1; // GPIO2 is Rev2.1 SQL, not an LED
+  tp->cdt_led_on = 0;
   log_d("cdt_led_pin = %d, cdt_led_on = %d, port = %d", tp->cdt_led_pin, tp->cdt_led_on, tp->port);
   // tp->ptt_pin = 12;
 #ifdef FX25TNCR2
