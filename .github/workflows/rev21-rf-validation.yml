@@ -45,7 +45,11 @@ jobs:
           python tools/rev21_deep_compat.py
 
       - name: Apply physical RF validation fixes
-        run: python tools/rev21_hw_validation_fixes.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/rev21_hw_validation_fixes.py
+          python tools/rev21_modem_late_extern_fix.py
 
       - name: Verify all Rev2.1 invariants
         shell: bash
@@ -63,6 +67,7 @@ jobs:
           FILES="src/main.cpp src/config.cpp src/webservice.cpp lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h lib/LibAPRS_ESP32S3/modem.cpp"
           BEFORE="$(sha256sum $FILES | sha256sum | awk '{print $1}')"
           python tools/rev21_hw_validation_fixes.py
+          python tools/rev21_modem_late_extern_fix.py
           AFTER="$(sha256sum $FILES | sha256sum | awk '{print $1}')"
           test "$BEFORE" = "$AFTER"
           echo "PASS Rev2.1 RF-validation patch is idempotent"

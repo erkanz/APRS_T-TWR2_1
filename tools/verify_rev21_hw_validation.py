@@ -33,6 +33,7 @@ checks = [
     ("header exposes transition flags", "extern volatile int8_t adcEn;" in AFSK_H and "extern volatile int8_t dacEn;" in AFSK_H),
     ("header exposes FIFO helper", "void AFSK_FlushRxFifo(void);" in AFSK_H),
     ("modem externs use volatile", "extern volatile bool hw_afsk_dac_isr;" in MODEM and "extern volatile int8_t adcEn;" in MODEM),
+    ("modem has no nonvolatile transition externs", "extern int8_t adcEn;" not in MODEM and "extern int8_t dacEn;" not in MODEM and "extern bool hw_afsk_dac_isr;" not in MODEM),
     ("main PTT externs use volatile", "extern volatile bool pttON;" in MAIN and "extern volatile bool pttOFF;" in MAIN),
     ("main ADC/DAC externs use volatile", "extern volatile int8_t adcEn;" in MAIN and "extern volatile int8_t dacEn;" in MAIN),
     ("config ADC/DAC externs use volatile", "extern volatile int8_t adcEn;" in CONFIG and "extern volatile int8_t dacEn;" in CONFIG),
