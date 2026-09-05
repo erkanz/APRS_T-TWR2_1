@@ -4823,6 +4823,9 @@ void loop()
     //   sprintf(sts, "POSITION GPS\nGPS INVALID\n");
     // pushTxDisp(TXCH_RF, "After Voice", sts);
     LED_Status(0, 0, 0);
+    digitalWrite(SA868_PTT_PIN, HIGH); // Rev2.1 voice PTT release: HIGH=RX/idle
+    digitalWrite(SA868_MIC_SEL, LOW);  // restore normal microphone/radio route
+    log_i("[VOICE PTT] RELEASE PTT41=HIGH RX");
     AFSKInitAct = true;
     if (config.rf_type == RF_SA8x8_OpenEdit)
     {
