@@ -8,12 +8,13 @@ MAIN = ROOT / "src/main.cpp"
 def patch_main() -> None:
     text = MAIN.read_text(encoding="utf-8")
 
-    # Final Rev2.1 source uses the board's real SH1106 controller.  SH110X
+    # Final Rev2.1 source uses the board's real SH1106 controller. SH110X
     # legitimately calls Wire.begin(), but Arduino-ESP32 reuses an already
     # initialized TwoWire bus; the display object is also configured to restore
-    # the shared bus to 400 kHz after transfers.  Do not try to rewrite the
+    # the shared bus to 400 kHz after transfers. Do not try to rewrite the
     # SH1106 begin call back into the legacy SSD1306 form.
-    if "Adafruit_SH1106G display(" in text and "display.begin(oled_addr, false);" in text:
+    if (("Adafruit_SH1106G display(" in text or "Rev21SH1106G display(" in text) and
+            "display.begin(oled_addr, false);" in text):
         print("SKIP  Rev2.1 SH1106 already uses the initialized shared Wire bus")
         MAIN.write_text(text, encoding="utf-8")
         return
