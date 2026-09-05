@@ -2451,32 +2451,37 @@ bool pkgTxPush(const char *info, size_t len, int dly, uint8_t Ch)
   return true;
 }
 
-void burstAfterVoice()
+void manualBeaconTx()
 {
   String rawData;
   String cmn = "";
-  if (gps.location.isValid()) // TRACKER by GPS
-  {
+  if (gps.location.isValid())
     rawData = trk_gps_postion(cmn);
-  }
-  else // TRACKER by FIX position
-  {
+  else
     rawData = trk_fix_position(cmn);
-  }
-  rev21SetRfPower(config.rf_power); // RF Power LOW
-  digitalWrite(SA868_MIC_SEL, HIGH);        // Select = ESP2MIC
-  status.txCount++;
-  log_d("Burst TX->RF: %s\n", rawData.c_str());
-  pkgTxPush(rawData.c_str(), rawData.length(), 0, RF_CHANNEL);
-  // APRS_sendTNC2Pkt(rawData); // Send packet to RF
 
-  // for (int i = 0; i < 100; i++)
-  // {
-  //   if (digitalRead(SA868_PTT_PIN))
-  //     break;
-  //   delay(50); // TOT 5sec
-  // }
-  // Rev2.1: GPIO38 write removed.
+  if (rawData.length() == 0)
+  {
+    log_e("[MANUAL BEACON] failed to build tracker position");
+    return;
+  }
+
+  // Manual beacon is an explicit RF action. It must not depend on tracker enable,
+  // periodic interval state, APRS-IS routing, or trk_loc2rf.
+  if (pkgTxPush(rawData.c_str(), rawData.length(), 0, RF_CHANNEL))
+  {
+    StandByTick = millis() + 5000;
+    log_i("[MANUAL BEACON] queued RF: %s", rawData.c_str());
+  }
+  else
+  {
+    log_e("[MANUAL BEACON] RF queue rejected packet");
+  }
+}
+
+void burstAfterVoice()
+{
+  manualBeaconTx();
 }
 
 bool pkgTxSend()
@@ -2527,7 +2532,7 @@ bool pkgTxSend()
           //   digitalWrite(config.rf_pwr_gpio, config.rf_power ^ !config.rf_pwr_active); // ON RF Power H/L
           // }
           status.txCount++;
-          log_d("TX->RF[%i]: %s\n", txQueue[i].length, txQueue[i].Info);
+          log_i("[APRS TX] RF queue len=%i: %s", txQueue[i].length, txQueue[i].Info);
           APRS_setPreamble(config.preamble * 100); // Send packet to RF
           APRS_sendTNC2Pkt((uint8_t *)txQueue[i].Info, txQueue[i].length);
           igateTLM.TX++;
@@ -4850,7 +4855,8 @@ void loop()
       }
       else
       {
-        EVENT_TX_POSITION = 1;
+        log_i("[MANUAL BEACON] BOOT short press");
+        manualBeaconTx();
       }
       btn_count = 0;
     }
@@ -6343,7 +6349,6 @@ void taskAPRS(void *pvParameters)
         tickInterval = millis() + 1000;
 
         tx_counter++;
-        log_d("TRACKER tx_counter=%d\t INTERVAL=%d\n", tx_counter, tx_interval);
         //   Check interval timeout
         if (config.trk_smartbeacon && config.trk_gps)
         {

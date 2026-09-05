@@ -1044,6 +1044,30 @@ void event_lastHeard()
 						html += String(audBV, 1) + "dBV</td></tr>\n";
 					}
 				}
+				else
+				{
+					// The HDLC/FCS/AX.25 layer accepted this frame, but the APRS
+					// information field is syntactically invalid. Keep it visible in
+					// Last Heard instead of making a valid RF decode appear to vanish.
+					localtime_r(&pkg.time, &tmstruct);
+					char strTime[10];
+					sprintf(strTime, "%02d:%02d:%02d", tmstruct.tm_hour, tmstruct.tm_min, tmstruct.tm_sec);
+					html += "<tr><td>" + String(strTime) + "</td>";
+					html += "<td>!</td>";
+					html += "<td>" + src_call + "</td>";
+					html += "<td style=\"text-align: left;\">RF: AX.25 OK</td>";
+					html += "<td>-</td>";
+					html += "<td style=\"color:#b36b00;\">INVALID APRS</td>";
+					if (pkg.audio_level == 0)
+						html += "<td>-</td></tr>\n";
+					else
+					{
+						double Vrms = (double)pkg.audio_level / 1000;
+						double audBV = 20.0F * log10(Vrms);
+						html += "<td>" + String(audBV, 1) + "dBV</td></tr>\n";
+					}
+					log_w("[APRS PARSER] AX.25 frame accepted but APRS payload invalid: %s", pkg.raw);
+				}
 				path.clear();
 				src_call.clear();
 			}

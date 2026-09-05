@@ -241,15 +241,9 @@ void setPtt(bool state)
     // setTransmit(true);
     //}
     pttON = true;
-    // LED_Status(255, 0, 0);
-    // rgbTimeout = millis() + 500;
-    int c = 0;
-    while (hw_afsk_dac_isr == false)
-    {
-      if (++c > 100)
-        break;
-      delay(10);
-    }
+    // Do not wait for hw_afsk_dac_isr here. ModemTransmitStart() intentionally
+    // starts the DAC timer only after setPtt(true) returns; waiting here created
+    // an artificial ~1 second delay before every APRS transmission.
   }
   else
   {
@@ -456,21 +450,30 @@ void AFSK_TimerEnable(bool sts)
   // }
 }
 
+static bool dacTimerRunning = false;
 void DAC_TimerEnable(bool sts)
 {
   if (timer_dac == NULL)
     return;
-  // portENTER_CRITICAL_ISR(&timerMux);
-  if (sts == true)
+  // Arduino-ESP32 3.x reports an error when timerStop() is called on an
+  // already-stopped GPTimer. Keep explicit state so RX/idle paths are quiet.
+  if (sts)
   {
-    timerStart(timer_dac);
-    hw_afsk_dac_isr = true; //GG
+    if (!dacTimerRunning)
+    {
+      timerStart(timer_dac);
+      dacTimerRunning = true;
+    }
+    hw_afsk_dac_isr = true;
   }
   else
   {
-    timerStop(timer_dac);
+    if (dacTimerRunning)
+    {
+      timerStop(timer_dac);
+      dacTimerRunning = false;
+    }
   }
-  // portEXIT_CRITICAL_ISR(&timerMux);
   dacEn = 0;
 }
 
