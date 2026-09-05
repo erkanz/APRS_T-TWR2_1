@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import re
 
 ROOT = Path(__file__).resolve().parents[1]
 main = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
@@ -35,8 +34,8 @@ if mode_b >= 0:
     before_recreate = tail[:first_recreate] if first_recreate >= 0 else tail
     expect("no stale Mode B sensor resume", "vTaskResume(taskSensorHandle);" not in before_recreate)
 
-# Generic web MOD page may parse legacy values, but backend must normalize fixed Rev2.1 wiring
-# before save and before RF_INIT applies anything live.
+# Generic web pages may parse legacy values, but backend must normalize fixed Rev2.1
+# radio wiring and system I2C topology before save/re-init.
 expect("web Rev2.1 hardware helper", "static void enforceRev21RadioHardwareProfile()" in web)
 for token in (
     "config.rf_tx_gpio = 39;",
@@ -48,14 +47,22 @@ for token in (
     "config.rf_sql_active = LOW;",
     "config.rf_pd_active = HIGH;",
     "config.rf_ptt_active = LOW;",
+    "config.i2c_sda_pin = 8;",
+    "config.i2c_sck_pin = 9;",
+    "config.i2c_freq = 400000;",
 ):
     expect(f"web hardware lock: {token}", token in web)
 
 norm = web.find("enforceRev21RadioHardwareProfile();")
 save = web.find('saveConfiguration("/default.cfg", config);', norm if norm >= 0 else 0)
 rfinit = web.find("RF_INIT = true;", norm if norm >= 0 else 0)
-expect("web normalize before save", norm >= 0 and save > norm)
-expect("web normalize before RF_INIT", norm >= 0 and rfinit > norm)
+expect("web radio normalize before save", norm >= 0 and save > norm)
+expect("web radio normalize before RF_INIT", norm >= 0 and rfinit > norm)
+
+i2c_commit = web.find("config.i2c_enable = En;")
+i2c_norm = web.find("enforceRev21RadioHardwareProfile();", i2c_commit if i2c_commit >= 0 else 0)
+i2c_save = web.find('saveConfiguration("/default.cfg", config);', i2c_commit if i2c_commit >= 0 else 0)
+expect("web I2C0 normalize before save", i2c_commit >= 0 and i2c_norm > i2c_commit and i2c_save > i2c_norm)
 
 # Serial update helper must remain valid even after web OTA switches active slot.
 expect("serial update writes app0", "0x10000 TWR_APRS_Rev21_UPDATE.bin" in workflow)
