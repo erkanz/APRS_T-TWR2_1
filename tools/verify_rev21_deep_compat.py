@@ -9,6 +9,7 @@ sensor = (ROOT / "src/sensor.cpp").read_text(encoding="utf-8")
 web = (ROOT / "src/webservice.cpp").read_text(encoding="utf-8")
 pio = (ROOT / "platformio.ini").read_text(encoding="utf-8")
 legacy_gfx = (ROOT / "lib/Adafruit_GFX/library.properties").read_text(encoding="utf-8")
+seven_segment_font = ROOT / "lib/Adafruit_GFX/Fonts/Seven_Segment24pt7b.h"
 workflow = (ROOT / ".github/workflows/rev21-build.yml").read_text(encoding="utf-8")
 
 checks = []
@@ -16,7 +17,6 @@ checks = []
 def expect(name, cond):
     checks.append((name, bool(cond)))
 
-# Official Rev2.1 OLED controller, not merely I2C-address detection.
 expect("SH1106 main header", "#include <Adafruit_SH110X.h>" in main)
 expect("SH1106 main object", "Adafruit_SH1106G display(" in main)
 expect("SH1106 main begin", "display.begin(oled_addr, false);" in main)
@@ -26,10 +26,10 @@ expect("GUI header no SSD1306 include", '#include "Adafruit_SSD1306.h"' not in g
 expect("GUI header no SSD1306 display declaration", "extern Adafruit_SSD1306 display;" not in gui_h)
 expect("GUI BLACK alias maps to SH110X", "#define BLACK SH110X_BLACK" in gui_h)
 expect("GUI WHITE alias maps to SH110X", "#define WHITE SH110X_WHITE" in gui_h)
+expect("project seven-segment font exists", seven_segment_font.is_file())
+expect("custom font bypasses ignored legacy include path", '#include "../lib/Adafruit_GFX/Fonts/Seven_Segment24pt7b.h"' in gui_h)
 expect("SSD1306 active include removed from main", '#include "Adafruit_SSD1306.h"' not in main)
-expect("SSD1306 active begin removed", "display.begin(SSD1306_SWITCHCAPVCC" not in "\n".join(
-    line for line in main.splitlines() if not line.lstrip().startswith("//")
-))
+expect("SSD1306 active begin removed", "display.begin(SSD1306_SWITCHCAPVCC" not in "\n".join(line for line in main.splitlines() if not line.lstrip().startswith("//")))
 expect("SH1106 dependency pinned", "adafruit/Adafruit SH110X@2.1.14" in pio)
 expect("GUI no SSD1306 command API", "display.ssd1306_command(" not in gui_cpp)
 expect("GUI no SSD1306 dim API", "display.dim(" not in gui_cpp)
@@ -38,18 +38,13 @@ expect("GUI uses SH110X contrast API", "display.setContrast(" in gui_cpp)
 expect("main sleep/wake uses SH110X contrast API", "display.setContrast(0x00);" in main and "display.setContrast(0xFF);" in main)
 expect("undefined OLED command 0xE4 removed", "oled_command(0xE4)" not in gui_cpp and "ssd1306_command(0xE4)" not in gui_cpp)
 
-# Only one Adafruit GFX implementation may be linked. SH110X requires the modern
-# Adafruit_GFX/Adafruit_GrayOLED stack; the bundled 1.5.6 copy is historical only.
 expect("bundled GFX identified as legacy", "name=Legacy Adafruit GFX Library" in legacy_gfx)
 expect("bundled legacy GFX ignored", "lib_ignore = Legacy Adafruit GFX Library" in pio)
 expect("legacy standalone SSD1306 source excluded", "build_src_filter = +<*> -<Adafruit_SSD1306.cpp>" in pio)
 
-# System I2C belongs to the board: PMU.begin() owns Wire initialization, OLED and
-# sensors reuse it. Sensor setup must not re-run Wire.begin or move GPIO8/9.
 expect("sensor code does not restart system Wire", "Wire.begin(config.i2c_sda_pin, config.i2c_sck_pin, config.i2c_freq);" not in sensor)
 expect("sensor code restores 400kHz shared bus", "Wire.setClock(400000);" in sensor)
 
-# Mode A legitimately suspends/resumes taskSensor. Mode B deletes/recreates it.
 expect("only one taskSensor resume remains", main.count("vTaskResume(taskSensorHandle);") == 1)
 expect("Mode B sensor handle nulled after delete", "vTaskDelete(taskSensorHandle);\n                            taskSensorHandle = nullptr;" in main)
 expect("Mode B network handle nulled after delete", "vTaskDelete(taskNetworkHandle);\n                            taskNetworkHandle = nullptr;" in main)
@@ -61,22 +56,12 @@ if mode_b >= 0:
     before_recreate = tail[:first_recreate] if first_recreate >= 0 else tail
     expect("no stale Mode B sensor resume", "vTaskResume(taskSensorHandle);" not in before_recreate)
 
-# Generic web pages may parse legacy values, but backend must normalize fixed Rev2.1
-# radio wiring and system I2C topology before save/re-init.
 expect("web Rev2.1 hardware helper", "static void enforceRev21RadioHardwareProfile()" in web)
 for token in (
-    "config.rf_tx_gpio = 39;",
-    "config.rf_rx_gpio = 48;",
-    "config.rf_sql_gpio = 2;",
-    "config.rf_pd_gpio = 40;",
-    "config.rf_pwr_gpio = -1;",
-    "config.rf_ptt_gpio = 41;",
-    "config.rf_sql_active = LOW;",
-    "config.rf_pd_active = HIGH;",
-    "config.rf_ptt_active = LOW;",
-    "config.i2c_enable = true;",
-    "config.i2c_sda_pin = 8;",
-    "config.i2c_sck_pin = 9;",
+    "config.rf_tx_gpio = 39;", "config.rf_rx_gpio = 48;", "config.rf_sql_gpio = 2;",
+    "config.rf_pd_gpio = 40;", "config.rf_pwr_gpio = -1;", "config.rf_ptt_gpio = 41;",
+    "config.rf_sql_active = LOW;", "config.rf_pd_active = HIGH;", "config.rf_ptt_active = LOW;",
+    "config.i2c_enable = true;", "config.i2c_sda_pin = 8;", "config.i2c_sck_pin = 9;",
     "config.i2c_freq = 400000;",
 ):
     expect(f"web hardware lock: {token}", token in web)
@@ -92,7 +77,6 @@ i2c_norm = web.find("enforceRev21RadioHardwareProfile();", i2c_commit if i2c_com
 i2c_save = web.find('saveConfiguration("/default.cfg", config);', i2c_commit if i2c_commit >= 0 else 0)
 expect("web I2C0 normalize before save", i2c_commit >= 0 and i2c_norm > i2c_commit and i2c_save > i2c_norm)
 
-# Serial update helper must remain valid even after web OTA switches active slot.
 expect("serial update writes app0", "0x10000 TWR_APRS_Rev21_UPDATE.bin" in workflow)
 expect("serial update writes app1", "0x410000 TWR_APRS_Rev21_UPDATE.bin" in workflow)
 
