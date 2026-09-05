@@ -37,8 +37,8 @@ extern "C"
 #include "soc/syscon_struct.h"
 }
 
-bool pttON = false;
-bool pttOFF = false;
+volatile bool pttON = false;
+volatile bool pttOFF = false;
 
 #define DEBUG_TNC
 
@@ -54,7 +54,7 @@ uint8_t adc_atten;
 static const adc_unit_t unit = ADC_UNIT_1;
 
 void sample_dac_isr();
-bool hw_afsk_dac_isr = false;
+volatile bool hw_afsk_dac_isr = false;
 
 static int Vref = 950;
 
@@ -147,14 +147,14 @@ void LED_init(int8_t led_tx_pin, int8_t led_rx_pin, int8_t led_strip_pin)
 {
   _led_tx_pin = led_tx_pin;
   _led_rx_pin = led_rx_pin;
-  _led_strip_pin = led_strip_pin;
+
+  // Rev2.1 hardware-validation build: do not claim GPIO42 through the Arduino
+  // NeoPixel/RMT backend. Arduino-ESP32 can reject this RMT channel when light
+  // sleep power-down is enabled. APRS RF operation does not depend on the RGB LED.
+  _led_strip_pin = -1;
   if (led_strip_pin > -1)
-  {
-    rgbTimeout = millis() + 50;
-    strip = new Adafruit_NeoPixel(1, _led_strip_pin, NEO_GRB + NEO_KHZ800);
-    strip->begin();
-    strip->show();
-  }
+    log_w("[REV2.1] NeoPixel GPIO%d disabled during RF validation", led_strip_pin);
+
   if (led_tx_pin > -1)
   {
     pinMode(led_tx_pin, OUTPUT);
@@ -261,7 +261,8 @@ void setPtt(bool state)
     // rgbTimeout = 0;
     // LED_Status(0, 0, 0);
     // delay(100);
-    pttOFF = true;
+    // pttOFF is the ISR-to-task deferred RX transition flag. setPtt(false)
+    // is executed in task context and must not re-arm that flag.
   }
 }
 
@@ -414,14 +415,30 @@ static const char *TAG = "--(TAG ADC DMA)--";
 // hw_timer_t *timer = NULL;
 hw_timer_t *timer_dac = NULL;
 
-int8_t adcEn = 0;
-int8_t dacEn = 0;
+volatile int8_t adcEn = 0;
+volatile int8_t dacEn = 0;
 
 SemaphoreHandle_t xI2CSemaphore;
 
 #define DEFAULT_SEMAPHORE_TIMEOUT 10
 
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+
+void AFSK_FlushRxFifo(void)
+{
+  portENTER_CRITICAL(&timerMux);
+  RingBuffer_Init(&fifo);
+  portEXIT_CRITICAL(&timerMux);
+}
+
+void AFSK_LogRadioState(const char *phase)
+{
+  const int pttLevel = (_ptt_pin > -1) ? digitalRead(_ptt_pin) : -1;
+  const int muxLevel = digitalRead(17);
+  log_i("[RF TX] %s PTT%d=%d active=%s MUX17=%d DAC%d=%s",
+        phase, _ptt_pin, pttLevel, _ptt_active ? "HIGH" : "LOW", muxLevel, _dac_pin,
+        (phase && phase[0] == 'S' && phase[1] == 'T' && phase[2] == 'A') ? "ACTIVE" : "IDLE");
+}
 
 void AFSK_TimerEnable(bool sts)
 {
@@ -649,6 +666,10 @@ volatile SemaphoreHandle_t timerSemaphore;
 int16_t adcPush;
 bool IRAM_ATTR s_conv_done_cb(adc_continuous_handle_t stAdcHandle, const adc_continuous_evt_data_t *edata, void *user_data)
 {
+  // TX and RX share the audio path. Never enqueue ADC DMA samples while the
+  // DAC/AFSK transmitter owns the path; stale TX-era samples poison RX recovery.
+  if (hw_afsk_dac_isr)
+    return true;
 
   portENTER_CRITICAL_ISR(&timerMux);
   for (uint32_t k = 0; k < edata->size; k += SOC_ADC_DIGI_RESULT_BYTES)
@@ -664,9 +685,12 @@ bool IRAM_ATTR s_conv_done_cb(adc_continuous_handle_t stAdcHandle, const adc_con
       continue;
     adcPush = (int16_t)p->type2.data;
 #endif
-fifo.buffer[fifo.head] = adcPush;
-fifo.head = (fifo.head + 1) % BUFFER_SIZE; // Wrap around using modulo
-fifo.count++;
+    if (fifo.count < BUFFER_SIZE)
+    {
+      fifo.buffer[fifo.head] = adcPush;
+      fifo.head = (fifo.head + 1) % BUFFER_SIZE; // Wrap around using modulo
+      fifo.count++;
+    }
 // if (!RingBuffer_Push(&fifo, adcPush)) {
 //   //printf("Buffer is full!\n");
 //   break;
@@ -886,7 +910,7 @@ void AFSK_init(int8_t adc_pin, int8_t dac_pin, int8_t ptt_pin, int8_t sql_pin, i
   _pwr_pin = pwr_pin;
   _led_tx_pin = led_tx_pin;
   _led_rx_pin = led_rx_pin;
-  _led_strip_pin = led_strip_pin;
+  _led_strip_pin = -1; // Rev2.1 RF validation: NeoPixel/RMT disabled
 
   _ptt_active = ptt_act;
   _sql_active = sql_act;

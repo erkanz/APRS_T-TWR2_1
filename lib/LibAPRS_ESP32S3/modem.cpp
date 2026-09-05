@@ -611,9 +611,10 @@ void ModemTxTestStart(enum ModemTxTestMode type)
 	setPtt(true); // PTT on
 	txTestState = type;
 }
-extern int8_t adcEn;
-extern int8_t dacEn;
-extern bool hw_afsk_dac_isr;
+extern volatile int8_t adcEn;
+extern volatile int8_t dacEn;
+extern volatile bool hw_afsk_dac_isr;
+extern volatile bool pttOFF;
 void ModemTxTestStop(void)
 {
 	txTestState = TEST_DISABLED;
@@ -627,6 +628,7 @@ void ModemTransmitStart(void)
 {
 	txTestState = TEST_DISABLED;
 	setPtt(true); // PTT on
+	AFSK_LogRadioState("START");
 	AFSK_TimerEnable(false);
 	DAC_TimerEnable(true);
 	log_d("ModemTransmitStart");
@@ -635,14 +637,15 @@ void ModemTransmitStart(void)
 /**
  * @brief Stop TX and go back to RX
  */
-extern bool pttOFF;
 void ModemTransmitStop(void)
 {
-	setPtt(false);
-	hw_afsk_dac_isr=false;
-	DAC_TimerEnable(false);
-	AFSK_TimerEnable(true);
-	log_d("ModemTransmitStop");
+	// Called from the DAC baud timer ISR. Do not perform GPIO/RMT/ADC driver
+	// operations here. Quiesce the sample ISR immediately and defer the physical
+	// RX transition to taskAPRS(), which runs every ~10 ms.
+	hw_afsk_dac_isr = false;
+	dacEn = -1;
+	adcEn = 1;
+	pttOFF = true;
 }
 
 /**

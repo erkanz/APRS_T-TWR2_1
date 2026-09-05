@@ -179,14 +179,14 @@ inline static uint8_t sinSample(uint16_t i)
 #define AFSK_DAC_IRQ_START()         \
     do                               \
     {                                \
-        extern bool hw_afsk_dac_isr; \
+        extern volatile bool hw_afsk_dac_isr; \
         hw_afsk_dac_isr = true;      \
         (void)0;                      \
     } while (0)
 #define AFSK_DAC_IRQ_STOP()          \
     do                               \
     {                                \
-        extern bool hw_afsk_dac_isr; \
+        extern volatile bool hw_afsk_dac_isr; \
         hw_afsk_dac_isr = false;     \
         (void)0;                      \
     } while (0)
@@ -316,5 +316,13 @@ void afskSetModem(uint8_t val, bool bpf,uint16_t timeSlot,uint16_t preamble,uint
 void setPtt(bool state);
 void IRAM_ATTR LED_Status(uint8_t red, uint8_t green, uint8_t blue);
 void LED_init(int8_t led_tx_pin, int8_t led_rx_pin, int8_t led_strip_pin);
+void AFSK_FlushRxFifo(void);
+void AFSK_LogRadioState(const char *phase);
+
+extern volatile bool pttON;
+extern volatile bool pttOFF;
+extern volatile bool hw_afsk_dac_isr;
+extern volatile int8_t adcEn;
+extern volatile int8_t dacEn;
 
 #endif

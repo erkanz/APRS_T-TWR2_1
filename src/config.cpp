@@ -23,8 +23,8 @@ extern adc_continuous_handle_t AdcHandle;
 
 JsonDocument doc;
 
-extern int8_t adcEn;
-extern int8_t dacEn;
+extern volatile int8_t adcEn;
+extern volatile int8_t dacEn;
 
 // Saves the configuration to a file
 bool saveConfiguration(const char *filename, const Configuration &config)

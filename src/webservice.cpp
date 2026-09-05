@@ -25,8 +25,8 @@ AsyncEventSource lastheard_events("/eventHeard");
 
 String webString;
 
-extern int8_t adcEn;
-extern int8_t dacEn;
+extern volatile int8_t adcEn;
+extern volatile int8_t dacEn;
 extern bool RF_INIT;
 
 bool defaultSetting = false;

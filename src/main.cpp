@@ -90,8 +90,8 @@ ModbusMaster modbus;
 #define SQL_PIN -1
 HardwareSerial SerialRF(2); // RX, TX
 
-extern bool pttON;
-extern bool pttOFF;
+extern volatile bool pttON;
+extern volatile bool pttOFF;
 
 SA868 sa868(&SerialRF, SA868_RX_PIN, SA868_TX_PIN);
 
@@ -6206,8 +6206,8 @@ String getPath(int idx)
   return ret;
 }
 
-extern int8_t adcEn;
-extern int8_t dacEn;
+extern volatile int8_t adcEn;
+extern volatile int8_t dacEn;
 long timeSlot;
 unsigned long iGatetickInterval;
 unsigned long WxInterval;
@@ -6265,17 +6265,17 @@ void taskAPRS(void *pvParameters)
       RF_INIT=false;
     }
 
-    if (adcEn == 1)
+    // TX completion originates in the DAC timer ISR. Complete the hardware
+    // transition back to RX here in FreeRTOS task context.
+    if (pttOFF)
     {
-      AFSK_TimerEnable(true);
-      adcEn = 0;
-    }
-    else if (adcEn == -1)
-    {
-      AFSK_TimerEnable(false);
-      adcEn = 0;
+      pttOFF = false;
+      setPtt(false);
+      AFSK_FlushRxFifo();
+      AFSK_LogRadioState("STOP");
     }
 
+    // Stop the TX timer before restarting ADC DMA.
     if (dacEn == 1)
     {
       DAC_TimerEnable(true);
@@ -6285,6 +6285,17 @@ void taskAPRS(void *pvParameters)
     {
       DAC_TimerEnable(false);
       dacEn = 0;
+    }
+
+    if (adcEn == 1)
+    {
+      AFSK_TimerEnable(true);
+      adcEn = 0;
+    }
+    else if (adcEn == -1)
+    {
+      AFSK_TimerEnable(false);
+      adcEn = 0;
     }
     long now = millis();
     // wdtSensorTimer = now;
