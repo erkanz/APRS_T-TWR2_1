@@ -67,9 +67,9 @@ jobs:
         run: |
           set -euo pipefail
           git diff --check
-          BEFORE="$(git diff -- src/main.cpp include/gui_lcd.h src/sensor.cpp src/webservice.cpp platformio.ini | sha256sum | awk '{print $1}')"
+          BEFORE="$(git diff -- src/main.cpp include/gui_lcd.h src/gui_lcd.cpp src/sensor.cpp src/webservice.cpp platformio.ini | sha256sum | awk '{print $1}')"
           python tools/rev21_deep_compat.py
-          AFTER="$(git diff -- src/main.cpp include/gui_lcd.h src/sensor.cpp src/webservice.cpp platformio.ini | sha256sum | awk '{print $1}')"
+          AFTER="$(git diff -- src/main.cpp include/gui_lcd.h src/gui_lcd.cpp src/sensor.cpp src/webservice.cpp platformio.ini | sha256sum | awk '{print $1}')"
           test "$BEFORE" = "$AFTER"
           echo "PASS Rev2.1 deep patch is idempotent"
 
@@ -87,25 +87,16 @@ jobs:
           set -euo pipefail
           ENV_DIR=.pio/build/esp32s3-twrplus
           mkdir -p dist
-
           cp "$ENV_DIR/firmware.bin" dist/TWR_APRS_Rev21_UPDATE.bin
           cp "$ENV_DIR/bootloader.bin" dist/bootloader.bin
           cp "$ENV_DIR/partitions.bin" dist/partitions.bin
-
           BOOT_APP="$(find "$HOME/.platformio" -type f -name boot_app0.bin | head -n 1 || true)"
           if [ -z "$BOOT_APP" ]; then
             echo "boot_app0.bin not found" >&2
             exit 1
           fi
           cp "$BOOT_APP" dist/boot_app0.bin
-
-          python -m esptool --chip esp32s3 merge-bin \
-            -o dist/TWR_APRS_Rev21_FULL_INSTALL.bin \
-            0x0000 dist/bootloader.bin \
-            0x8000 dist/partitions.bin \
-            0xe000 dist/boot_app0.bin \
-            0x10000 dist/TWR_APRS_Rev21_UPDATE.bin
-
+          python -m esptool --chip esp32s3 merge-bin -o dist/TWR_APRS_Rev21_FULL_INSTALL.bin 0x0000 dist/bootloader.bin 0x8000 dist/partitions.bin 0xe000 dist/boot_app0.bin 0x10000 dist/TWR_APRS_Rev21_UPDATE.bin
           cat > dist/FLASH_UPDATE_KEEP_SETTINGS.bat <<'EOF'
           @echo off
           setlocal
@@ -118,7 +109,6 @@ jobs:
           endlocal
           EOF
           sed -i 's/^          //' dist/FLASH_UPDATE_KEEP_SETTINGS.bat
-
           cat > dist/FLASH_FULL_CLEAN_INSTALL.bat <<'EOF'
           @echo off
           setlocal
@@ -133,7 +123,6 @@ jobs:
           endlocal
           EOF
           sed -i 's/^          //' dist/FLASH_FULL_CLEAN_INSTALL.bat
-
           cat > dist/FLASH_INSTRUCTIONS.txt <<'EOF'
           LILYGO T-TWR Plus Rev2.1 - FULL COMPATIBILITY BUILD
           ===================================================
@@ -171,7 +160,6 @@ jobs:
             FLASH_FULL_CLEAN_INSTALL.bat COM27
           EOF
           sed -i 's/^          //' dist/FLASH_INSTRUCTIONS.txt
-
           {
             echo "Repository: $GITHUB_REPOSITORY"
             echo "Source commit: $GITHUB_SHA"
@@ -187,7 +175,6 @@ jobs:
             echo
             ls -lh dist/*.bin
           } > dist/BUILD_INFO.txt
-
           (cd dist && sha256sum *.bin > SHA256SUMS.txt)
           cat dist/BUILD_INFO.txt
           cat dist/SHA256SUMS.txt
@@ -215,7 +202,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main.cpp include/gui_lcd.h src/sensor.cpp src/webservice.cpp include/main.h include/config.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h platformio.ini boards/LilyGo-T-TWR-Plus.json
+          git add src/main.cpp include/gui_lcd.h src/gui_lcd.cpp src/sensor.cpp src/webservice.cpp include/main.h include/config.h lib/LibAPRS_ESP32S3/AFSK.cpp lib/LibAPRS_ESP32S3/AFSK.h platformio.ini boards/LilyGo-T-TWR-Plus.json
           if git diff --cached --quiet; then
             echo "PASS no generated source changes; committed source is reproducible."
           else
