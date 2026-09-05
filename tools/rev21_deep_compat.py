@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "src/main.cpp"
+GUI_H = ROOT / "include/gui_lcd.h"
 WEB = ROOT / "src/webservice.cpp"
 PIO = ROOT / "platformio.ini"
 
@@ -88,6 +89,25 @@ def patch_main() -> None:
         raise SystemExit("ERROR: expected exactly one valid Mode A taskSensor resume after patch")
 
     MAIN.write_text(text, encoding="utf-8")
+
+
+def patch_gui_header() -> None:
+    text = GUI_H.read_text(encoding="utf-8")
+
+    text = replace_once(
+        text,
+        '#include "Adafruit_SSD1306.h"',
+        '#include <Adafruit_SH110X.h>',
+        "GUI SH1106 include",
+    )
+    text = replace_once(
+        text,
+        'extern Adafruit_SSD1306 display;',
+        'extern Adafruit_SH1106G display;',
+        "GUI SH1106 display declaration",
+    )
+
+    GUI_H.write_text(text, encoding="utf-8")
 
 
 def patch_web() -> None:
@@ -189,6 +209,7 @@ def patch_platformio() -> None:
 
 def main() -> None:
     patch_main()
+    patch_gui_header()
     patch_web()
     patch_platformio()
     print("PASS Rev2.1 deep compatibility patch applied/idempotent")
