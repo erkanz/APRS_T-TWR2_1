@@ -18,3 +18,10 @@ The build applies and verifies these invariants before compiling:
 - User TWDT does not subscribe IDLE0/IDLE1
 
 GitHub Actions builds `esp32s3-twrplus`, verifies the source invariants, packages the individual flash images, creates a merged firmware image, and publishes SHA-256 hashes as a workflow artifact.
+
+## CI status
+
+- Initial patched-source build: PASS
+- Hardware invariant checks: 23/23 PASS
+- Verified source committed by CI: `2d088bfdc1f657afb1661c56702c09cf79eef98b`
+- This documentation commit intentionally triggers a second build from the already-committed Rev2.1 source to verify patch idempotence and reproducibility.
