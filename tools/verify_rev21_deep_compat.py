@@ -8,6 +8,7 @@ gui_cpp = (ROOT / "src/gui_lcd.cpp").read_text(encoding="utf-8")
 sensor = (ROOT / "src/sensor.cpp").read_text(encoding="utf-8")
 web = (ROOT / "src/webservice.cpp").read_text(encoding="utf-8")
 pio = (ROOT / "platformio.ini").read_text(encoding="utf-8")
+legacy_gfx = (ROOT / "lib/Adafruit_GFX/library.properties").read_text(encoding="utf-8")
 workflow = (ROOT / ".github/workflows/rev21-build.yml").read_text(encoding="utf-8")
 
 checks = []
@@ -36,6 +37,12 @@ expect("main no SSD1306 dim API", "display.dim(" not in main)
 expect("GUI uses SH110X contrast API", "display.setContrast(" in gui_cpp)
 expect("main sleep/wake uses SH110X contrast API", "display.setContrast(0x00);" in main and "display.setContrast(0xFF);" in main)
 expect("undefined OLED command 0xE4 removed", "oled_command(0xE4)" not in gui_cpp and "ssd1306_command(0xE4)" not in gui_cpp)
+
+# Only one Adafruit GFX implementation may be linked. SH110X requires the modern
+# Adafruit_GFX/Adafruit_GrayOLED stack; the bundled 1.5.6 copy is historical only.
+expect("bundled GFX identified as legacy", "name=Legacy Adafruit GFX Library" in legacy_gfx)
+expect("bundled legacy GFX ignored", "lib_ignore = Legacy Adafruit GFX Library" in pio)
+expect("legacy standalone SSD1306 source excluded", "build_src_filter = +<*> -<Adafruit_SSD1306.cpp>" in pio)
 
 # System I2C belongs to the board: PMU.begin() owns Wire initialization, OLED and
 # sensors reuse it. Sensor setup must not re-run Wire.begin or move GPIO8/9.
