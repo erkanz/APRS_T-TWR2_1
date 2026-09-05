@@ -33,6 +33,11 @@ def patch_main() -> None:
         "SH1106 initialization",
     )
 
+    # SSD1306::dim() does not exist on Adafruit_SH1106G. Preserve the original
+    # sleep/wake semantics through the controller-independent contrast API.
+    text = text.replace('display.dim(true);', 'display.setContrast(0x00);')
+    text = text.replace('display.dim(false);', 'display.setContrast(0xFF);')
+
     old_sensor_delete = '                        vTaskDelete(taskSensorHandle);'
     new_sensor_delete = (
         '                        if (taskSensorHandle != nullptr)\n'
@@ -102,20 +107,19 @@ def patch_gui_header() -> None:
 def patch_gui_cpp() -> None:
     text = GUI_CPP.read_text(encoding="utf-8")
 
-    # Adafruit_SH1106G inherits these generic APIs from Adafruit_GrayOLED.
     text = text.replace('display.dim(true);', 'display.setContrast(0x00);')
     text = text.replace('display.dim(false);', 'display.setContrast(0xFF);')
     text = text.replace('display.ssd1306_command(SSD1306_SETCONTRAST);', 'display.setContrast((uint8_t)config.contrast);')
     text = text.replace('display.ssd1306_command(config.contrast);', '')
-    text = text.replace('display.ssd1306_command(0xE4);', 'display.oled_command(0xE4);')
 
-    # Remove stale commented SSD1306 command examples as well.
+    # 0xE4 is not a defined SH1106 command. The legacy code sent it immediately
+    # before clearing/redrawing the monitor screen, so omit the undefined command.
+    text = text.replace('display.ssd1306_command(0xE4);', '')
+    text = text.replace('display.oled_command(0xE4);', '')
+
     text = text.replace('// display.ssd1306_command(SSD1306_SETPRECHARGE);                  // 0xd9', '// SH1106 contrast is handled with display.setContrast()')
     text = text.replace('// display.ssd1306_command(SSD1306_SETVCOMDETECT);                 // 0xDB', '')
 
-    # Some replacements above intentionally remove only the command text from an
-    # indented line. Strip line-end whitespace so the generated patch is clean
-    # and deterministic under git diff --check on every CI run.
     had_final_newline = text.endswith('\n')
     text = '\n'.join(line.rstrip() for line in text.splitlines())
     if had_final_newline:
@@ -123,8 +127,9 @@ def patch_gui_cpp() -> None:
 
     active_lines = [line for line in text.splitlines() if not line.lstrip().startswith('//')]
     active = '\n'.join(active_lines)
-    if 'display.dim(' in active or 'display.ssd1306_command(' in active or 'SSD1306_SETCONTRAST' in active:
-        raise SystemExit("ERROR: active SSD1306-only GUI API remains after SH1106 migration")
+    if ('display.dim(' in active or 'display.ssd1306_command(' in active or
+            'SSD1306_SETCONTRAST' in active or 'oled_command(0xE4)' in active):
+        raise SystemExit("ERROR: SSD1306/undefined SH1106 GUI API remains after migration")
 
     GUI_CPP.write_text(text, encoding="utf-8")
 
