@@ -3715,7 +3715,6 @@ void setup()
   memset(pkgList, 0, sizeof(pkgListType) * PKGLISTSIZE);
   memset(Telemetry, 0, sizeof(TelemetryType) * TLMLISTSIZE);
   memset(txQueue, 0, sizeof(txQueueType) * PKGTXSIZE);
-  loadPersistentPacketHistory(); // restore last 100 decoded RF packets
   // memset(TNC2Raw, 0, sizeof(TNC2Raw) * PKGTXSIZE);
 
   pinMode(BOOT_PIN, INPUT_PULLUP);
@@ -3767,6 +3766,7 @@ void setup()
     }
   }
 
+  loadPersistentPacketHistory(); // restore last 100 decoded RF packets
   applyTwrRev21HardwareProfile();
   log_d("[REV2.1] HW profile: UART TX=39 RX=48 SQL=2 PD=40 PTT=41 ADC=1 DAC=18 MUX=17 RF_PWR=disabled");
   log_d("Start ESP32APRS_T-TWR V%s", String(VERSION).c_str());
