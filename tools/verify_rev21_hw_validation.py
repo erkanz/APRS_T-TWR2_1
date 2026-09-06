@@ -32,3 +32,4 @@ if failed:
 
 print(f"{len(checks)}/{len(checks)} FX.25 interoperability checks PASS")
 runpy.run_path(str(ROOT / "tools/verify_rev21_fx25_rx_guard.py"), run_name="__main__")
+runpy.run_path(str(ROOT / "tools/verify_rev21_persistent_packet_history.py"), run_name="__main__")
