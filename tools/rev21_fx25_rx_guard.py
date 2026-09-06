@@ -29,8 +29,8 @@ def main() -> None:
     new_flag = '''\t\tif(rx->rawData == 0x7E) //HDLC flag received\n\t\t{\n#ifdef ENABLE_FX25\n\t\t\t// The next 64 bits are the only legal location for an FX.25\n\t\t\t// correlation tag. Repeated preamble flags simply re-arm this window.\n\t\t\trx->fx25TagWindowBits = 0;\n#endif\n'''
     text = replace_once(text, old_flag, new_flag, "arm FX.25 tag window after HDLC flag")
 
-    old_fx_end = '''\t\trx->rx = RX_STAGE_FLAG;\n\t\trx->receivedByte = 0;\n\t\trx->receivedBitIdx = 0;\n\t\trx->frameIdx = 0;\n\t\treturn;\n\t}\n#else\n'''
-    new_fx_end = '''\t\trx->rx = RX_STAGE_FLAG;\n\t\trx->receivedByte = 0;\n\t\trx->receivedBitIdx = 0;\n\t\trx->frameIdx = 0;\n\t\t// Consecutive FX.25 blocks may place the next correlation tag directly\n\t\t// after this block, so arm one new 64-bit tag window here as well.\n\t\trx->fx25TagWindowBits = 0;\n\t\treturn;\n\t}\n#else\n'''
+    old_fx_end = '''\t\t\trx->rx = RX_STAGE_FLAG;\n\t\t\trx->receivedByte = 0;\n\t\t\trx->receivedBitIdx = 0;\n\t\t\trx->frameIdx = 0;\n\t\t\treturn;\n\t\t}\n#else\n'''
+    new_fx_end = '''\t\t\trx->rx = RX_STAGE_FLAG;\n\t\t\trx->receivedByte = 0;\n\t\t\trx->receivedBitIdx = 0;\n\t\t\trx->frameIdx = 0;\n\t\t\t// Consecutive FX.25 blocks may place the next correlation tag directly\n\t\t\t// after this block, so arm one new 64-bit tag window here as well.\n\t\t\trx->fx25TagWindowBits = 0;\n\t\t\treturn;\n\t\t}\n#else\n'''
     text = replace_once(text, old_fx_end, new_fx_end, "re-arm FX.25 tag window after completed FX.25 block")
 
     old_init = '''\tmemset((void*)rxState, 0, sizeof(rxState));\n\tfor(uint8_t i = 0; i < (sizeof(rxState) / sizeof(rxState[0])); i++)\n\t\trxState[i].crc = 0xFFFF;\n'''
