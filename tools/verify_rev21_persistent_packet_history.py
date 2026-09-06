@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
+WEB = (ROOT / "src/webservice.cpp").read_text(encoding="utf-8")
 
 checks = [
     ("persistent RF history capacity is exactly 100", "static constexpr uint16_t PACKET_HISTORY_CAPACITY = 100;" in MAIN),
@@ -15,6 +16,8 @@ checks = [
     ("restore cannot recursively write history", "packetHistoryRestoring = true;" in MAIN and "packetHistoryRestoring = false;" in MAIN),
     ("stored packet time is restored into Last Heard", "pkgList[idx].time = static_cast<time_t>(record.timestamp);" in MAIN),
     ("oldest Last Heard slot selection tolerates restored timestamps", "time_t minimum = pkgList[0].time;" in MAIN and "for (i = 1; i < PKGLISTSIZE; i++)" in MAIN),
+    ("Dashboard asks for Last Heard after DOM load", "fetch('/lastHeardRefresh',{cache:'no-store'})" in WEB),
+    ("Last Heard refresh endpoint emits current restored table", 'async_server.on("/lastHeardRefresh", HTTP_GET' in WEB and "event_lastHeard();" in WEB),
 ]
 
 failed = [name for name, ok in checks if not ok]
@@ -24,4 +27,4 @@ for name, ok in checks:
 if failed:
     raise SystemExit(f"{len(failed)} persistent RF history checks failed: {', '.join(failed)}")
 
-print(f"{len(checks)}/{len(checks)} persistent RF history checks PASS")
+print(f"{len(checks)}/{len(checks)} persistent RF history/Last Heard checks PASS")
