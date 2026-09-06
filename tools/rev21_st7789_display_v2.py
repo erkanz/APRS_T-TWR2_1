@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Robust entry point for the Rev2.1 ST7789 display compatibility pass.
+"""Robust web UI patch for the Rev2.1 ST7789 display compatibility pass.
 
-The base implementation owns the C++/driver changes.  This wrapper replaces only
-the web Display Setting transformation with marker-based slicing so legacy C++
-line-continuation formatting cannot make the patch brittle.
+This module owns only the System -> Display Setting transformation. It uses
+semantic markers instead of exact legacy line formatting and emits ordinary C++
+statements (no source-line continuations), keeping generated code compiler-safe.
 """
 
 import rev21_st7789_display as base
@@ -35,7 +35,7 @@ def patch_web() -> None:
 '''
         text = text[:idx] + parser + text[idx:]
 
-    # Replace the legacy OLED/TFT Enable checkbox.  Locate by semantic markers
+    # Replace the legacy OLED/TFT Enable checkbox. Locate by semantic markers
     # instead of exact escaped/newline formatting.
     if "<b>Display Output</b>" not in text:
         needle = "<b>OLED/TFT Enable</b>"
@@ -50,18 +50,17 @@ def patch_web() -> None:
             raise SystemExit("ERROR: legacy display output block boundaries not found")
         end += len(end_marker)
 
-        new_ui = r'''\t\thtml += "<td style=\"text-align: right;\"><b>Display Output</b></td>\
-";
-\t\thtml += "<td style=\"text-align: left;\"><select name=\"displayMode\" id=\"displayMode\">";
-\t\thtml += getDisplayOutputMode() == DISPLAY_OUTPUT_OLED ? "<option value=\"0\" selected>OLED (SH1106)</option>" : "<option value=\"0\">OLED (SH1106)</option>";
-\t\thtml += getDisplayOutputMode() == DISPLAY_OUTPUT_TFT ? "<option value=\"1\" selected>TFT (ST7789)</option>" : "<option value=\"1\">TFT (ST7789)</option>";
-\t\thtml += getDisplayOutputMode() == DISPLAY_OUTPUT_BOTH ? "<option value=\"2\" selected>Both</option>" : "<option value=\"2\">Both</option>";
-\t\thtml += "</select> <i>*Output change applies after reboot.</i></td>\
-";
-\t\thtml += "</tr>\
-";
-\t\thtml += "<tr><td style=\"text-align: right;\"><b>ST7789 Interface</b></td><td style=\"text-align: left;\">240x320 SPI; MOSI=11, MISO=13, SCK=12, CS=44, DC=14, RST=43</td></tr>\
-";
+        # Deliberately avoid C/C++ source-line continuation backslashes here.
+        # Each generated statement is self-contained and therefore insensitive to
+        # Python raw-string escaping or source newline conventions.
+        new_ui = '''\t\thtml += "<td style=\\"text-align: right;\\"><b>Display Output</b></td>";
+\t\thtml += "<td style=\\"text-align: left;\\"><select name=\\"displayMode\\" id=\\"displayMode\\">";
+\t\thtml += getDisplayOutputMode() == DISPLAY_OUTPUT_OLED ? "<option value=\\"0\\" selected>OLED (SH1106)</option>" : "<option value=\\"0\\">OLED (SH1106)</option>";
+\t\thtml += getDisplayOutputMode() == DISPLAY_OUTPUT_TFT ? "<option value=\\"1\\" selected>TFT (ST7789)</option>" : "<option value=\\"1\\">TFT (ST7789)</option>";
+\t\thtml += getDisplayOutputMode() == DISPLAY_OUTPUT_BOTH ? "<option value=\\"2\\" selected>Both</option>" : "<option value=\\"2\\">Both</option>";
+\t\thtml += "</select> <i>*Output change applies after reboot.</i></td>";
+\t\thtml += "</tr>";
+\t\thtml += "<tr><td style=\\"text-align: right;\\"><b>ST7789 Interface</b></td><td style=\\"text-align: left;\\">240x320 SPI; MOSI=11, MISO=13, SCK=12, CS=44, DC=14, RST=43</td></tr>";
 \t\tString oledFlageEn = "";'''
         text = text[:start] + new_ui + text[end:]
 
@@ -82,7 +81,7 @@ def main() -> None:
     print("PASS BOOT/PTT/encoder push/encoder rotation wake the display")
     print("PASS legacy 128x64 UI mirrored 2x to ST7789 landscape")
     print("PASS GPIO38 remains unused by TFT backlight control")
-    print("PASS System Display Setting patch is formatting-independent")
+    print("PASS System Display Setting patch emits compiler-safe C++")
 
 
 if __name__ == "__main__":
