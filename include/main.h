@@ -66,6 +66,10 @@
 #define OLED
 #define SDCARD
 
+#define DISPLAY_OUTPUT_OLED 0
+#define DISPLAY_OUTPUT_TFT 1
+#define DISPLAY_OUTPUT_BOTH 2
+
 #define WIFI_OFF_FIX 0
 #define WIFI_AP_FIX 1
 #define WIFI_STA_FIX 2
@@ -294,4 +298,7 @@ String trk_fix_position(String comment, bool forceUncompressed = true);
 String getPath(int idx);
 bool waitPSRAM(bool state);
 void convertSecondsToDHMS(char *dmhs,unsigned long totalSeconds);
+uint8_t getDisplayOutputMode();
+void setDisplayOutputMode(uint8_t mode);
+bool displayOutputUsesTFT();
 #endif

@@ -3767,6 +3767,18 @@ void handle_system(AsyncWebServerRequest *request)
 			// Serial.print(request->argName(i));
 			// Serial.print("=");
 			// Serial.println(request->arg(i));
+			if (request->argName(i) == "displayMode")
+			{
+				if (request->arg(i) != "" && isValidNumber(request->arg(i)))
+				{
+					int mode = request->arg(i).toInt();
+					if (mode >= DISPLAY_OUTPUT_OLED && mode <= DISPLAY_OUTPUT_BOTH)
+					{
+						setDisplayOutputMode((uint8_t)mode);
+						config.oled_enable = true;
+					}
+				}
+			}
 			if (request->argName(i) == "oledEnable")
 			{
 				if (request->arg(i) != "")
@@ -4263,13 +4275,15 @@ void handle_system(AsyncWebServerRequest *request)
 		html += "<table>\n";
 		html += "<th colspan=\"2\"><span><b>Display Setting</b></span></th>\n";
 		html += "<tr>\n";
-		html += "<td style=\"text-align: right;\"><b>OLED/TFT Enable</b></td>\n";
+		html += "<td style=\"text-align: right;\"><b>Display Output</b></td>";
+		html += "<td style=\"text-align: left;\"><select name=\"displayMode\" id=\"displayMode\">";
+		html += getDisplayOutputMode() == DISPLAY_OUTPUT_OLED ? "<option value=\"0\" selected>OLED (SH1106)</option>" : "<option value=\"0\">OLED (SH1106)</option>";
+		html += getDisplayOutputMode() == DISPLAY_OUTPUT_TFT ? "<option value=\"1\" selected>TFT (ST7789)</option>" : "<option value=\"1\">TFT (ST7789)</option>";
+		html += getDisplayOutputMode() == DISPLAY_OUTPUT_BOTH ? "<option value=\"2\" selected>Both</option>" : "<option value=\"2\">Both</option>";
+		html += "</select> <i>*Output change applies after reboot.</i></td>";
+		html += "</tr>";
+		html += "<tr><td style=\"text-align: right;\"><b>ST7789 Interface</b></td><td style=\"text-align: left;\">240x320 SPI; MOSI=11, MISO=13, SCK=12, CS=44, DC=14, RST=43</td></tr>";
 		String oledFlageEn = "";
-		if (config.oled_enable == true)
-			oledFlageEn = "checked";
-		html += "<td style=\"text-align: left;\"><label class=\"switch\"><input type=\"checkbox\" name=\"oledEnable\" value=\"OK\" " + oledFlageEn + "><span class=\"slider round\"></span></label></td>\n";
-		html += "</tr>\n";
-		oledFlageEn = "";
 		if (config.disp_flip == true)
 			oledFlageEn = "checked";
 		html += "<tr>\n";
@@ -4326,7 +4340,7 @@ void handle_system(AsyncWebServerRequest *request)
 		html += "</select>\n";
 		html += "</td></tr>\n";
 		html += "<tr>\n";
-		html += "<td style=\"text-align: right;\"><b>OLED/TFT Sleep</b></td>\n";
+		html += "<td style=\"text-align: right;\"><b>Screen Timeout</b></td>\n";
 		html += "<td style=\"text-align: left;\">\n";
 		html += "<select name=\"oled_timeout\" id=\"oled_timeout\">\n";
 		for (int i = 0; i <= 600; i += 30)

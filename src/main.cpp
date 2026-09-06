@@ -17,6 +17,7 @@
 #include <WiFiMulti.h>
 #include <WiFiClient.h>
 #include <LITTLEFS.h>
+#include <Preferences.h>
 #include <esp_task_wdt.h>
 #include "main.h"
 #include "XPowersLib.h"
@@ -160,6 +161,53 @@ String RF_VERSION;
 XPowersAXP2101 PMU;
 
 Configuration config;
+
+// Display output mode is stored independently from Configuration so adding this
+// feature never changes the EEPROM binary layout or resets existing user settings.
+static uint8_t rev21DisplayOutputMode = DISPLAY_OUTPUT_OLED;
+
+uint8_t getDisplayOutputMode()
+{
+  return rev21DisplayOutputMode;
+}
+
+bool displayOutputUsesTFT()
+{
+  return rev21DisplayOutputMode == DISPLAY_OUTPUT_TFT || rev21DisplayOutputMode == DISPLAY_OUTPUT_BOTH;
+}
+
+static void loadDisplayOutputMode()
+{
+  Preferences prefs;
+  if (prefs.begin("twr-display", true))
+  {
+    rev21DisplayOutputMode = prefs.getUChar("mode", DISPLAY_OUTPUT_OLED);
+    prefs.end();
+  }
+  if (rev21DisplayOutputMode > DISPLAY_OUTPUT_BOTH)
+    rev21DisplayOutputMode = DISPLAY_OUTPUT_OLED;
+  // Legacy oled_enable becomes the master "display task enabled" flag. All three
+  // new modes require the task, so an old disabled value must not suppress TFT.
+  config.oled_enable = true;
+  log_i("[DISPLAY] output=%s timeout=%ds",
+        rev21DisplayOutputMode == DISPLAY_OUTPUT_OLED ? "OLED" :
+        (rev21DisplayOutputMode == DISPLAY_OUTPUT_TFT ? "TFT" : "BOTH"),
+        config.oled_timeout);
+}
+
+void setDisplayOutputMode(uint8_t mode)
+{
+  if (mode > DISPLAY_OUTPUT_BOTH)
+    mode = DISPLAY_OUTPUT_OLED;
+  rev21DisplayOutputMode = mode;
+  Preferences prefs;
+  if (prefs.begin("twr-display", false))
+  {
+    prefs.putUChar("mode", rev21DisplayOutputMode);
+    prefs.end();
+  }
+  log_i("[DISPLAY] saved output mode=%u; applies after reboot", rev21DisplayOutputMode);
+}
 
 // T-TWR Plus Rev2.1 hardware profile.  Apply this after loading persistent
 // configuration so an old Rev2.0/default.cfg cannot restore unsafe GPIOs.
@@ -3672,6 +3720,8 @@ void setup()
 
   pinMode(BOOT_PIN, INPUT_PULLUP);
   pinMode(ENCODER_OK_PIN, INPUT_PULLUP);
+  pinMode(ENCODER_A_PIN, INPUT_PULLUP);
+  pinMode(ENCODER_B_PIN, INPUT_PULLUP);
   pinMode(BUTTON_PTT_PIN, INPUT_PULLUP); // PTT BUTTON
   LED_init(-1,-1,42);
 
@@ -3735,6 +3785,8 @@ void setup()
   // Setup Power PMU AXP2101. PMU.begin() initializes Wire on Rev2.1 pins.
   setupPower();
   Wire.setClock(config.i2c_freq);
+  loadDisplayOutputMode();
+  display.setOutputMode(getDisplayOutputMode());
   //delay(500);
   // setupSDCard();
   //strip = new Adafruit_NeoPixel(1, PIXELS_PIN, NEO_GRB + NEO_KHZ800);
@@ -3755,7 +3807,10 @@ void setup()
     log_d("OLED found at 0x%02X", oled_addr);
   } else {
     log_d("No OLED found");
-    config.oled_enable = false;
+    // TFT-only remains fully operational without an OLED. In BOTH mode the TFT
+    // remains available even if the onboard OLED is absent/faulty.
+    if (getDisplayOutputMode() == DISPLAY_OUTPUT_OLED)
+      config.oled_enable = false;
   }   
 
   // Rev2.1 shared I2C bus is already initialized by AXP2101 PMU.begin().
@@ -5023,9 +5078,64 @@ bool save_act = false;
 
 bool ptt_stat_old = false;
 
+static uint32_t displayLastActivityMs = 0;
+static bool displayTimeoutSleeping = false;
+static int8_t displayButtonState[5] = {-1, -1, -1, -1, -1};
+
+static void serviceDisplayScreenTimeout()
+{
+  const int pins[5] = {BOOT_PIN, BUTTON_PTT_PIN, ENCODER_OK_PIN, ENCODER_A_PIN, ENCODER_B_PIN};
+  bool activity = false;
+  for (size_t i = 0; i < 5; ++i)
+  {
+    const int state = digitalRead(pins[i]);
+    if (displayButtonState[i] < 0)
+      displayButtonState[i] = state;
+    else if (displayButtonState[i] != state)
+    {
+      displayButtonState[i] = state;
+      activity = true;
+    }
+  }
+
+  const uint32_t nowMs = millis();
+  if (displayLastActivityMs == 0)
+    displayLastActivityMs = nowMs;
+
+  if (activity)
+  {
+    displayLastActivityMs = nowMs;
+    if (displayTimeoutSleeping)
+    {
+      display.setPanelSleep(false);
+      displayTimeoutSleeping = false;
+      log_i("[DISPLAY] wake: button/encoder activity");
+    }
+  }
+
+  if (config.oled_timeout <= 0)
+  {
+    if (displayTimeoutSleeping)
+    {
+      display.setPanelSleep(false);
+      displayTimeoutSleeping = false;
+    }
+    return;
+  }
+
+  const uint32_t timeoutMs = static_cast<uint32_t>(config.oled_timeout) * 1000UL;
+  if (!displayTimeoutSleeping && (uint32_t)(nowMs - displayLastActivityMs) >= timeoutMs)
+  {
+    display.setPanelSleep(true);
+    displayTimeoutSleeping = true;
+    log_i("[DISPLAY] sleep: timeout=%ds", config.oled_timeout);
+  }
+}
+
 void loop()
 {
   vTaskDelay(10 / portTICK_PERIOD_MS);
+  serviceDisplayScreenTimeout();
   if(getDCD())
   {
     StandByTick = millis() + (config.pwr_stanby_delay * 1000);
