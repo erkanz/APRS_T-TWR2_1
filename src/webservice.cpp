@@ -1781,7 +1781,7 @@ void handle_radio(AsyncWebServerRequest *request)
 			else
 				html += "<option value=\"" + String(i) + "\" >" + String(FX25_MODE[i]) + "</option>\n";
 		}
-		html += "</select>  (FX.25 = AX.25 + FEC)\n";
+		html += "</select>  (RX recommended: standard AX.25 TX; RX+TX sends FX.25 FEC and may not decode on standard APRS radios)\n";
 		html += "</td>\n";
 		html += "<tr>\n";
 		// html += "<td align=\"right\"><b>Audio HPF:</b></td>\n";

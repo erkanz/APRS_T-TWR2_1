@@ -1397,7 +1397,7 @@ void defaultConfig()
   config.adc_atten = 4;
   config.adc_dc_offset = 600;
   config.rf_baudrate = 9600;
-  config.fx25_mode = 2;
+  config.fx25_mode = 1; // Rev2.1 default: FX.25 RX-only; standard AX.25/APRS TX
 
   // IGATE
   config.igate_bcn = false;
@@ -6236,6 +6236,10 @@ void taskAPRS(void *pvParameters)
   log_d("RF Module config");
  
   afskSetModem(config.modem_type, config.audio_lpf, config.tx_timeslot, config.preamble * 100,config.fx25_mode);
+  if (config.fx25_mode == 2)
+    log_w("[FX25] RX+TX active: RF TX uses FX.25 FEC; standard AX.25/APRS radios may not decode it.");
+  else if (config.fx25_mode == 1)
+    log_i("[FX25] RX-only active: RF TX remains standard AX.25/APRS.");
    
   // afskSetDCOffset(config.adc_dc_offset);
   afskSetADCAtten(config.adc_atten);
