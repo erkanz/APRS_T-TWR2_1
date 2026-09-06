@@ -101,7 +101,7 @@ void setMainPage(AsyncWebServerRequest *request)
 	webString += "\n";
 	webString += "//document.getElementById(tabName).style.display = \"block\";\n";
 	webString += "if (tabName == 'DashBoard') {\n";
-	webString += "$(\"#contentmain\").load(\"/dashboard\");\n";
+	webString += "$(\"#contentmain\").load(\"/dashboard\", function(){fetch('/lastHeardRefresh',{cache:'no-store'});});\n";
 	webString += "} else if (tabName == 'Radio') {\n";
 	webString += "$(\"#contentmain\").load(\"/radio\");\n";
 	webString += "} else if (tabName == 'IGATE') {\n";
@@ -8972,6 +8972,11 @@ void webService()
 					{ handle_about(request); });
 	async_server.on("/dashboard", HTTP_GET, [](AsyncWebServerRequest *request)
 					{ handle_dashboard(request); });
+	async_server.on("/lastHeardRefresh", HTTP_GET, [](AsyncWebServerRequest *request)
+					{
+						request->send(204);
+						event_lastHeard();
+					});
 	async_server.on("/sidebarInfo", HTTP_GET, [](AsyncWebServerRequest *request)
 					{ handle_sidebar(request); });
 	async_server.on("/sysinfo", HTTP_GET, [](AsyncWebServerRequest *request)
