@@ -31,3 +31,4 @@ if failed:
     raise SystemExit(f"{len(failed)} FX.25 interoperability checks failed: {', '.join(failed)}")
 
 print(f"{len(checks)}/{len(checks)} FX.25 interoperability checks PASS")
+runpy.run_path(str(ROOT / "tools/verify_rev21_fx25_rx_guard.py"), run_name="__main__")
